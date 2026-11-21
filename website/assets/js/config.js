@@ -24,31 +24,32 @@ window.ASTER_CONFIG = {
   email: "jasonshen0225@163.com",
 
   // 安装包下载基地址；留空表示全部按下架处理（按钮显示「即将开放」）
-  base: "",
+  // 注意：当前安装包在 OSS 的 website/releases/ 下（上传时多带了一层 website）
+  base: "website/releases/",
 
   // 校验值文件（相对站点根目录，或绝对 URL）
-  sumsUrl: "releases/SHA256SUMS.txt",
+  sumsUrl: "website/releases/SHA256SUMS.txt",
 
   files: {
     setup: {
       name: "Aster-Setup-2.0.0.exe",
       url: "",
       size: "48.6 MB",
-      sha256: "",
+      sha256: "19b741e7b4f09bc180b96df48447321046578def8f4971059925dcf0f918443e",
       badge: "recommended",
     },
     gui: {
       name: "Aster.exe",
       url: "",
       size: "47 MB",
-      sha256: "",
+      sha256: "3b5f69c5b0de0dbff2d205ed7f42e14e229036d3997719350218c7bc51f40df1",
       badge: "",
     },
     apk: {
       name: "Aster-2.0.0-release.apk",
       url: "",
       size: "2.4 MB",
-      sha256: "",
+      sha256: "15ef5580ca624900efccac3102ab06e51ef52ed6eabbed45c4db1da592063ea9",
       badge: "optional",
     },
   },
