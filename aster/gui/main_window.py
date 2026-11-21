@@ -621,7 +621,7 @@ class MainWindow(QMainWindow):
         box.addWidget(about)
         github = QLabel(
             f'GitHub&nbsp;&nbsp;<a style="color:{p["accent"]}; text-decoration:none;" '
-            'href="https://github.com/JASON-SHEN-0225">JASON-SHEN-0225</a>'
+            'href="https://github.com/JASON-SHEN-0225/Aster">JASON-SHEN-0225/Aster</a>'
         )
         github.setOpenExternalLinks(True)
         github.setTextFormat(Qt.TextFormat.RichText)

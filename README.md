@@ -13,7 +13,7 @@ Aster 是一个自研局域网文件互传工具，当前只保留两个端：
 
 ## 下载
 
-构建产物体积较大，**不提交到仓库**（已写入 [`.gitignore`](.gitignore)），统一发布在 [Releases](../../releases/latest)：
+构建产物体积较大，**不提交到仓库**（已写入 [`.gitignore`](.gitignore)），统一发布在 [Releases](https://github.com/JASON-SHEN-0225/Aster/releases/latest)：
 
 | 文件 | 说明 |
 |---|---|
@@ -78,7 +78,7 @@ Aster/
 
 ### 安装
 
-从 [Releases](../../releases/latest) 下载 `Aster-Setup-2.0.0.exe`，双击安装，UAC 点「是」。安装包**只包含 `Aster.exe`**（开发文档、截图、启动脚本都不打包，也没有组件选择页）。安装器会：
+从 [Releases](https://github.com/JASON-SHEN-0225/Aster/releases/latest) 下载 `Aster-Setup-2.0.0.exe`，双击安装，UAC 点「是」。安装包**只包含 `Aster.exe`**（开发文档、截图、启动脚本都不打包，也没有组件选择页）。安装器会：
 
 - 安装到 `C:\Program Files\Aster`
 - 添加 Windows 防火墙规则：TCP 47820/47821、UDP 47820
@@ -159,7 +159,8 @@ powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
 
 ## 作者
 
-- GitHub：[JASON-SHEN-0225](https://github.com/JASON-SHEN-0225)
+- 仓库：[JASON-SHEN-0225/Aster](https://github.com/JASON-SHEN-0225/Aster)
+- 作者：[JASON-SHEN-0225](https://github.com/JASON-SHEN-0225)
 - Email：jasonshen0225@163.com
 
 ## License

@@ -17,7 +17,7 @@
         "Aster · 星流是自研协议的局域网文件互传工具。电脑与手机在同一 Wi-Fi 下直连互传，零中转、零账号、零上传，支持断点续传与 SHA-256 校验。",
       "meta.dlTitle": "下载 Aster 2.0.0 · Windows 安装包 / 免安装版 / Android",
       "meta.dlDesc":
-        "下载 Aster · 星流 2.0.0：Windows 安装包、免安装 GUI、命令行版与 Android APK。免运行库，安装即用。",
+        "下载 Aster · 星流 2.0.0：Windows 安装包、免安装 GUI 与 Android APK。免运行库，安装即用。",
 
       "nav.features": "功能",
       "nav.how": "怎么用",
@@ -48,7 +48,7 @@
       "hero.spec1": "Windows 10 / 11",
       "hero.spec2": "Android / 网页",
       "hero.spec3": "MIT 开源",
-      "hero.note": "安装包 70 MB · 免安装版 46 MB · 不需要任何运行库",
+      "hero.note": "安装包 48.6 MB · 免安装版 47 MB · 不需要任何运行库",
       "hero.scroll": "向下滚动",
 
       "float.pc": "客厅电脑",
@@ -98,12 +98,12 @@
       "f4.t1": "SHA-256",
       "f4.t2": "路径穿越清洗",
 
-      "f5.title": "三种形态，各取所需",
+      "f5.title": "桌面与手机，各取所需",
       "f5.desc":
-        "图形界面、命令行面板、手机网页与 Android APK，共用同一份配置、历史与下载目录。",
-      "f5.t1": "GUI",
-      "f5.t2": "CLI / TUI",
-      "f5.t3": "Web / APK",
+        "Windows 原生窗口和手机网页共用同一份配置、历史与下载目录；需要固定入口时，再装可选的 Android APK。",
+      "f5.t1": "桌面",
+      "f5.t2": "网页",
+      "f5.t3": "APK",
 
       "how.label": "上手",
       "how.title": "三步，从这台到那台。",
@@ -135,7 +135,7 @@
       "mobile.desc":
         "不用装 App：网页版由你电脑上的 Aster 直接托管。想要更固定的入口，也可以装可选的 Android APK 壳。",
       "m1.title": "打开二维码",
-      "m1.desc": "电脑左下角「手机网页 → 二维码」，或在命令行面板按 6。",
+      "m1.desc": "电脑左下角「手机网页 → 二维码」。",
       "m2.title": "扫码或输配对码",
       "m2.desc": "首次进入会要求 6 位配对码，配对后就能收发；HTTP / HTTPS 两个端口同时在线。",
       "m3.title": "添加到主屏幕",
@@ -183,9 +183,9 @@
       "faq.title": "你可能想知道的。",
       "q1": "手机打不开网页？",
       "a1":
-        "确认手机与电脑在同一个 Wi-Fi；以管理员身份运行 install-firewall.bat，放行 TCP 47820/47821 与 UDP 47820；在路由器里关闭「AP 隔离 / 客户端隔离」；用 AsterCLI.exe info 查看本机 IP 和端口。",
+        "确认手机与电脑在同一个 Wi-Fi；在 GUI「设置」页点「配置 Windows 防火墙」，放行 TCP 47820/47821 与 UDP 47820；在路由器里关闭「AP 隔离 / 客户端隔离」；本机 IP 和端口可以在「二维码」里查看。",
       "q2": "电脑之间发现不到？",
-      "a2": "命令行面板按 7 手动输入 IP:端口，或点 GUI 的「连接 IP」；两台电脑都要运行 Aster。",
+      "a2": "点 GUI 的「连接 IP」手动输入 IP:端口；两台电脑都要运行 Aster。",
       "q3": "HTTPS 提示不安全？",
       "a3": "自签名证书的正常提示，点「高级 → 继续访问」即可，不需要在设备上安装 CA。",
       "q4": "能跟 LocalSend 互传吗？",
@@ -195,7 +195,7 @@
       "a5": "不会。关窗默认缩到系统托盘，传输继续；托盘菜单里「退出」才真正停止。",
 
       "cta.title": "现在，把文件交给星流。",
-      "cta.desc": "Windows 安装包、免安装版、命令行版，以及可选的 Android APK，都已经准备好了。",
+      "cta.desc": "Windows 安装包、免安装版，以及可选的 Android APK，都已经准备好了。",
       "cta.button": "前往下载",
       "cta.ghost": "在 GitHub 查看源码",
       "cta.meta": "v{v} · Windows 10 1809+ · Android 8.0+ · MIT",
@@ -218,7 +218,7 @@
       "footer.made": "用 PySide6 与原生 Web 写成",
 
       "dlPage.title": "下载 Aster",
-      "dlPage.desc": "挑一个适合你的形态。所有版本共用同一套协议，可以互相发现、互传。",
+      "dlPage.desc": "挑一个适合你的版本。所有版本共用同一套协议，可以互相发现、互传。",
       "dlPage.chip1": "最新版本 v{v}",
       "dlPage.chip2": "MIT 开源",
       "dlPage.chip3": "免运行库依赖",
@@ -226,17 +226,24 @@
         "安装包正在上传，下载按钮暂时不可用。源码现在就能在 GitHub 获取，页面上的校验值会随文件一起生效。",
       "dlPage.section1": "Windows",
       "dlPage.section1sub": "推荐安装包 · 防火墙规则、快捷方式与卸载一次到位",
-      "dlPage.section2": "其他形态",
-      "dlPage.section2sub": "免安装、命令行与 Android",
+      "dlPage.section2": "其他方式",
+      "dlPage.section2sub": "免安装、Android 与源码",
       "setup.title": "Windows 安装包",
       "setup.desc":
-        "把 GUI、CLI、启动脚本、防火墙规则、右键菜单和卸载做进一个标准安装包，装完就能用。",
+        "把 GUI、启动脚本、防火墙规则、右键菜单和卸载做进一个标准安装包，装完就能用。",
       "gui.title": "免安装 GUI",
       "gui.desc": "解压即用，双击 Aster.exe 启动图形界面，不写系统目录。",
-      "cli.title": "命令行版",
-      "cli.desc": "5 行 ASCII 大标题的交互面板，同时支持完整子命令。",
       "apk.title": "Android APK",
       "apk.desc": "WebView 壳，连接电脑上的 Aster 使用；适合想固定入口的用户。",
+      "src.title": "源码与文档",
+      "src.desc":
+        "完整源码、协议说明和构建脚本都在 GitHub；想自己改、自己打包，或者只是看看实现，都可以从这里开始。",
+      "src.license": "许可",
+      "src.platformLabel": "平台",
+      "src.platforms": "Windows · Android · Web",
+      "src.stackLabel": "语言",
+      "src.stack": "Python · JS · Kotlin",
+      "src.button": "打开 GitHub 仓库",
       "dl.recommended": "推荐",
       "dl.optional": "可选",
       "dl.version": "版本",
@@ -245,7 +252,6 @@
       "dl.runtime": "运行库",
       "dl.runtimeNone": "不需要",
       "dl.requires": "Windows 10 1809+ / 11 · 64 位 · 需要管理员权限",
-      "dl.systemWin": "Windows 10 / 11 · x64",
       "dl.systemWinPortable": "Windows 10 / 11 · 免安装",
       "dl.systemApk": "Android 8.0+",
       "dl.download": "下载",
@@ -264,7 +270,7 @@
       "dlSteps.s2t": "按向导下一步",
       "dlSteps.s2d": "默认装到 C:\\Program Files\\Aster，可取消文档与桌面快捷方式。",
       "dlSteps.s3t": "开始传输",
-      "dlSteps.s3d": "防火墙规则由安装器自动写入；首次运行也能手动运行 install-firewall.bat。",
+      "dlSteps.s3d": "防火墙规则由安装器自动写入；免安装版可在设置页点「配置 Windows 防火墙」。",
 
       "warn.title": "没有代码签名，这是正常的",
       "warn.body":
@@ -300,7 +306,7 @@
         "Aster is a LAN file-transfer suite with its own protocol. PCs and phones transfer directly on the same Wi-Fi — no relay, no account, no uploads — with resume and SHA-256 verification.",
       "meta.dlTitle": "Download Aster 2.0.0 — Windows installer, portable, Android",
       "meta.dlDesc":
-        "Download Aster 2.0.0: Windows installer, portable GUI, command line and Android APK. No runtime required.",
+        "Download Aster 2.0.0: Windows installer, portable GUI and Android APK. No runtime required.",
 
       "nav.features": "Features",
       "nav.how": "How it works",
@@ -331,7 +337,7 @@
       "hero.spec1": "Windows 10 / 11",
       "hero.spec2": "Android / Web",
       "hero.spec3": "MIT licensed",
-      "hero.note": "70 MB installer · 46 MB portable · no runtime required",
+      "hero.note": "48.6 MB installer · 47 MB portable · no runtime required",
       "hero.scroll": "scroll",
 
       "float.pc": "Living room PC",
@@ -381,12 +387,12 @@
       "f4.t1": "SHA-256",
       "f4.t2": "path sanitising",
 
-      "f5.title": "Three shapes, one protocol",
+      "f5.title": "Desktop and phone, your pick",
       "f5.desc":
-        "GUI, terminal panel, mobile web and Android APK all share the same config, history and download folder.",
-      "f5.t1": "GUI",
-      "f5.t2": "CLI / TUI",
-      "f5.t3": "Web / APK",
+        "The Windows app and mobile web share one config, history and download folder. Install the optional Android APK when you want a fixed entry point.",
+      "f5.t1": "Desktop",
+      "f5.t2": "Web",
+      "f5.t3": "APK",
 
       "how.label": "GETTING STARTED",
       "how.title": "Three steps, one device to another.",
@@ -421,7 +427,7 @@
       "mobile.desc":
         "No app required: the mobile site is hosted by Aster on your computer. Prefer a fixed entry point? Install the optional Android APK shell.",
       "m1.title": "Open the QR code",
-      "m1.desc": "On the PC, click “Mobile web → QR code”, or press 6 in the terminal panel.",
+      "m1.desc": "On the PC, click “Mobile web → QR code”.",
       "m2.title": "Scan or enter the code",
       "m2.desc":
         "The first visit asks for a 6-digit pairing code. After that you can send and receive, with HTTP and HTTPS listening side by side.",
@@ -470,9 +476,9 @@
       "faq.title": "Things you might ask.",
       "q1": "The phone can't open the page?",
       "a1":
-        "Make sure both are on the same Wi-Fi. Run install-firewall.bat as administrator to allow TCP 47820/47821 and UDP 47820. Turn off AP isolation / client isolation on the router. Use AsterCLI.exe info to check the IP and ports.",
+        "Make sure both are on the same Wi-Fi. In the GUI Settings, click “Configure Windows Firewall” to allow TCP 47820/47821 and UDP 47820. Turn off AP isolation / client isolation on the router. The QR dialog shows your local IP and ports.",
       "q2": "PCs don't discover each other?",
-      "a2": "Press 7 in the terminal panel to enter IP:port manually, or click “Connect IP” in the GUI. Aster must be running on both machines.",
+      "a2": "Click “Connect IP” in the GUI and enter IP:port; Aster must be running on both machines.",
       "q3": "Why does HTTPS warn?",
       "a3": "That's the normal warning for a self-signed certificate. Choose “Advanced → Proceed”; no CA install is needed.",
       "q4": "Does it work with LocalSend?",
@@ -481,7 +487,7 @@
       "a5": "No. Closing the window hides it to the tray and transfers continue. Use “Quit” in the tray menu to actually stop.",
 
       "cta.title": "Hand your files to the starlight.",
-      "cta.desc": "The Windows installer, portable build, command line and optional Android APK are ready for you.",
+      "cta.desc": "The Windows installer, portable build and optional Android APK are ready for you.",
       "cta.button": "Go to downloads",
       "cta.ghost": "View the source on GitHub",
       "cta.meta": "v{v} · Windows 10 1809+ · Android 8.0+ · MIT",
@@ -504,7 +510,7 @@
       "footer.made": "built with PySide6 and plain web tech",
 
       "dlPage.title": "Download Aster",
-      "dlPage.desc": "Pick the shape that fits. Every build speaks the same protocol and can find each other.",
+      "dlPage.desc": "Pick the version that fits. Every build speaks the same protocol and can find each other.",
       "dlPage.chip1": "latest v{v}",
       "dlPage.chip2": "MIT licensed",
       "dlPage.chip3": "no runtime",
@@ -512,17 +518,24 @@
         "The installers are still being uploaded, so the download buttons are disabled for now. The source is already on GitHub, and checksums will go live with the files.",
       "dlPage.section1": "Windows",
       "dlPage.section1sub": "Recommended · firewall rules, shortcuts and uninstall handled",
-      "dlPage.section2": "Other builds",
-      "dlPage.section2sub": "portable, command line and Android",
+      "dlPage.section2": "Other options",
+      "dlPage.section2sub": "portable, Android and source",
       "setup.title": "Windows installer",
       "setup.desc":
-        "GUI, CLI, launch scripts, firewall rules, right-click menu and uninstall in one standard Windows installer.",
+        "GUI, launch scripts, firewall rules, right-click menu and uninstall in one standard Windows installer.",
       "gui.title": "Portable GUI",
       "gui.desc": "Unzip and run Aster.exe. Nothing is written to system folders.",
-      "cli.title": "Command line",
-      "cli.desc": "An interactive panel with a 5-line ASCII banner, plus full subcommands.",
       "apk.title": "Android APK",
       "apk.desc": "A WebView shell that connects to Aster on your PC. Good if you want a fixed entry point.",
+      "src.title": "Source & docs",
+      "src.desc":
+        "Full source, protocol notes and build scripts are on GitHub — fork it, build it yourself, or just read how it works.",
+      "src.license": "license",
+      "src.platformLabel": "platform",
+      "src.platforms": "Windows · Android · Web",
+      "src.stackLabel": "stack",
+      "src.stack": "Python · JS · Kotlin",
+      "src.button": "Open the GitHub repo",
       "dl.recommended": "recommended",
       "dl.optional": "optional",
       "dl.version": "version",
@@ -531,7 +544,6 @@
       "dl.runtime": "runtime",
       "dl.runtimeNone": "none",
       "dl.requires": "Windows 10 1809+ / 11 · 64-bit · administrator required",
-      "dl.systemWin": "Windows 10 / 11 · x64",
       "dl.systemWinPortable": "Windows 10 / 11 · portable",
       "dl.systemApk": "Android 8.0+",
       "dl.download": "Download",
@@ -550,7 +562,7 @@
       "dlSteps.s2t": "Follow the wizard",
       "dlSteps.s2d": "Installs to C:\\Program Files\\Aster. Docs and the desktop shortcut are optional.",
       "dlSteps.s3t": "Start transferring",
-      "dlSteps.s3d": "The installer adds firewall rules. You can also run install-firewall.bat manually.",
+      "dlSteps.s3d": "The installer adds firewall rules; portable users can click “Configure Windows Firewall” in Settings.",
 
       "warn.title": "Unsigned on purpose — that's expected",
       "warn.body":

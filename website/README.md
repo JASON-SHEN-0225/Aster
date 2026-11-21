@@ -3,6 +3,7 @@
 Aster · 星流 的静态官网：零依赖、纯 HTML / CSS / JS，可整目录上传到阿里云 OSS 静态网站托管、GitHub Pages 或任意静态服务器。
 
 - 线上域名：<https://asterdrop.cn>
+- 源码仓库：<https://github.com/JASON-SHEN-0225/Aster>
 - 下载页：`download.html`（`/download/` 有一页跳转兜底）
 - 中英双语、深色 / 浅色 / 跟随系统三态主题、动效尊重 `prefers-reduced-motion`
 - 视觉沿用软件：`#2E7CF6` 蓝 → `#13B99F` 薄荷渐变，深色底 `#0F1522` / 浅色底 `#F4F7FB`

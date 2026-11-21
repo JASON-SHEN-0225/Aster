@@ -1,4 +1,4 @@
-; ============================================================================
+﻿; ============================================================================
 ;  Aster · 星流 2.0 —— Windows 安装包（Inno Setup 6）
 ;
 ;  构建：ISCC.exe installer\Aster.iss
@@ -16,6 +16,7 @@
   #define MyAppVersion "2.0.0"
 #endif
 #define MyAppPublisher "Aster"
+#define MyAppURL "https://github.com/JASON-SHEN-0225/Aster"
 #define MyAppExeName "Aster.exe"
 #define MyAppId "{{6D3F0B21-9C4A-4E7B-8F52-1A9D3C6B7E40}"
 #define ProjectRoot ".."
@@ -26,6 +27,9 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}/issues
+AppUpdatesURL={#MyAppURL}/releases
 DefaultDirName={autopf}\Aster
 DefaultGroupName=Aster
 DisableProgramGroupPage=yes

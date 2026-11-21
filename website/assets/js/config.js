@@ -20,7 +20,7 @@ window.ASTER_CONFIG = {
   releaseDate: "", // 例如 "2026-12-01"，留空就不显示
 
   domain: "asterdrop.cn",
-  github: "https://github.com/JASON-SHEN-0225",
+  github: "https://github.com/JASON-SHEN-0225/Aster",
   email: "jasonshen0225@163.com",
 
   // 安装包下载基地址；留空表示全部按下架处理（按钮显示「即将开放」）
@@ -33,28 +33,21 @@ window.ASTER_CONFIG = {
     setup: {
       name: "Aster-Setup-2.0.0.exe",
       url: "",
-      size: "70 MB",
+      size: "48.6 MB",
       sha256: "",
       badge: "recommended",
     },
     gui: {
       name: "Aster.exe",
       url: "",
-      size: "46 MB",
-      sha256: "",
-      badge: "",
-    },
-    cli: {
-      name: "AsterCLI.exe",
-      url: "",
-      size: "20 MB",
+      size: "47 MB",
       sha256: "",
       badge: "",
     },
     apk: {
       name: "Aster-2.0.0-release.apk",
       url: "",
-      size: "2.3 MB",
+      size: "2.4 MB",
       sha256: "",
       badge: "optional",
     },
