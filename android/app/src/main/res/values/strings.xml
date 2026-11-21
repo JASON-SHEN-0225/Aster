@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aster 星流</string>
+
+    <string name="address_label">电脑地址</string>
+    <string name="address_hint">电脑 IP:端口</string>
+    <string name="protocol_http">HTTP</string>
+    <string name="protocol_https">HTTPS</string>
+    <string name="port_http">47820</string>
+    <string name="port_https">47821</string>
+    <string name="connect">连接</string>
+    <string name="scan">扫码</string>
+    <string name="status_last">上次 %1$s</string>
+    <string name="status_connecting">正在连接 %1$s</string>
+    <string name="status_connected">已连接 %1$s</string>
+    <string name="status_idle">未连接</string>
+    <string name="address_empty">请输入电脑地址</string>
+    <string name="address_invalid">地址格式不正确</string>
+    <string name="address_scheme_invalid">仅支持 http 或 https</string>
+    <string name="address_host_invalid">无法识别 IP 或主机名</string>
+    <string name="address_port_invalid">端口应在 1-65535</string>
+
+    <string name="error_title_connect">无法连接</string>
+    <string name="error_title_timeout">连接超时</string>
+    <string name="error_title_http">服务器返回错误</string>
+    <string name="error_title_ssl">HTTPS 证书未验证</string>
+    <string name="error_detail_unknown">连接失败</string>
+    <string name="error_detail_host">找不到电脑</string>
+    <string name="error_detail_connect">电脑未响应，Aster 可能未启动</string>
+    <string name="error_detail_timeout">电脑未在 15 秒内响应</string>
+    <string name="error_detail_network">网络错误</string>
+    <string name="error_detail_ssl">证书验证被取消</string>
+    <string name="error_detail_http">HTTP %1$d</string>
+    <string name="error_code">错误码 %1$d</string>
+    <string name="retry">重试</string>
+    <string name="change_address">换地址</string>
+
+    <string name="ssl_dialog_title">HTTPS 证书不受信任</string>
+    <string name="ssl_dialog_message">地址：%1$s\n颁发者：%2$s\nSHA-256：%3$s</string>
+    <string name="ssl_dialog_continue">继续</string>
+    <string name="ssl_dialog_cancel">取消</string>
+
+    <string name="camera_permission_required">需要相机权限才能扫码</string>
+    <string name="storage_permission_required">需要存储权限才能保存</string>
+    <string name="qr_invalid">二维码不是 Aster 地址</string>
+    <string name="qr_cancelled">已取消扫码</string>
+    <string name="external_link_failed">没有可打开该链接的应用</string>
+    <string name="file_picker_failed">无法打开文件选择器</string>
+    <string name="download_started">正在保存 %1$s</string>
+    <string name="download_saved">已保存到下载</string>
+    <string name="download_failed">保存失败</string>
+    <string name="download_unavailable">无法保存该链接</string>
+    <string name="download_channel_name">文件下载</string>
+    <string name="download_notification_title">Aster 下载</string>
+    <string name="download_notification_done">%1$s 已保存</string>
+    <string name="download_notification_failed">%1$s 保存失败</string>
+    <string name="download_notification_progress">%1$s  %2$d%%</string>
+    <string name="download_notification_progress_unknown">%1$s</string>
+</resources>

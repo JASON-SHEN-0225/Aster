@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Aster Mobile Redesign · LocalSend</title>
+<style>
+  :root{
+    --bg:#eef2f5; --phone:#ffffff; --ink:#1c2430; --muted:#7c8794;
+    --line:#e6ebf0; --soft:#f5f8fa; --teal:#2E7CF6; --teal-2:#13B99F;
+    --teal-soft:#E8F1FF; --dark:#172030; --blue:#2e7cf6;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#E8EEF7;font-family:"Noto Sans SC","Microsoft YaHei UI","Segoe UI",sans-serif;color:var(--ink)}
+  .board{width:1000px;padding:34px 38px 30px;margin:0 auto;background:linear-gradient(145deg,#F4F7FB,#E8EEF7)}
+  .board-head{display:flex;align-items:flex-end;justify-content:space-between;margin:0 4px 22px}
+  .board-title{font-size:23px;font-weight:750;letter-spacing:-.4px}
+  .board-title span{color:var(--teal)}
+  .board-sub{font-size:11px;color:#7b898f;margin-top:5px}
+  .board-badge{padding:7px 12px;border:1px solid #cdd9dd;border-radius:999px;font-size:10px;color:#5f7076;background:rgba(255,255,255,.45)}
+  .screens{display:flex;gap:30px;align-items:flex-start;justify-content:center}
+  .frame-wrap{width:390px}
+  .frame-label{display:flex;align-items:center;gap:8px;margin:0 0 11px 8px;color:#5e6c72;font-size:11px;font-weight:650}
+  .frame-label b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--teal);color:#fff;font-size:10px}
+  .phone{position:relative;width:390px;height:844px;border-radius:42px;background:var(--phone);overflow:hidden;box-shadow:0 22px 60px rgba(25,50,55,.18),0 0 0 8px #1d282c,0 0 0 9px #66757a}
+  .status{height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:11px;font-weight:650;color:#243330}
+  .status .right{display:flex;gap:5px;align-items:center}
+  .status i{display:block;width:15px;height:9px;border:1.4px solid #263431;border-radius:2px;position:relative}
+  .status i:after{content:"";position:absolute;inset:1px;background:#263431;border-radius:1px}
+  .appbar{display:flex;align-items:center;justify-content:space-between;padding:9px 20px 13px}
+  .brand{display:flex;align-items:center;gap:10px}
+  .mark{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:var(--teal-soft)}
+  .mark svg{width:25px;height:25px}
+  .brand b{display:block;font-size:17px;letter-spacing:-.3px;line-height:1.1}
+  .brand small{display:block;font-size:9px;color:var(--muted);margin-top:3px;letter-spacing:.4px}
+  .app-actions{display:flex;align-items:center;gap:7px}
+  .online{display:flex;align-items:center;gap:5px;font-size:10px;color:#087d6b;background:var(--teal-soft);padding:7px 10px;border-radius:999px;font-weight:650}
+  .online:before{content:"";width:5px;height:5px;border-radius:50%;background:var(--teal)}
+  .icon-btn{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:#fff;display:grid;place-items:center}
+  .page{padding:0 20px 74px}
+  .page-title{font-size:25px;letter-spacing:-.7px;font-weight:750;margin:4px 0 15px}
+  .segmented{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:#f1f5f6;border-radius:12px;margin-bottom:18px}
+  .segmented button{border:0;background:transparent;border-radius:9px;padding:9px 0;font:inherit;font-size:12px;color:#7b898f;font-weight:650}
+  .segmented button.active{background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(24,60,55,.08)}
+  .section-head{display:flex;align-items:center;justify-content:space-between;margin:0 1px 9px}
+  .section-head h2{font-size:12px;margin:0;font-weight:700;color:#35443f}
+  .section-head span{font-size:10px;color:var(--muted)}
+  .device{display:flex;align-items:center;gap:12px;padding:13px;border:1.5px solid var(--teal);border-radius:15px;background:#fff;box-shadow:0 8px 24px rgba(0,169,143,.07)}
+  .device .avatar{width:44px;height:44px;border-radius:12px;background:var(--teal-soft);display:grid;place-items:center;flex:none}
+  .device .avatar svg{width:24px;height:24px;color:var(--teal)}
+  .device-main{min-width:0;flex:1}
+  .device-name{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700}
+  .device-name em{font-style:normal;font-size:9px;color:#0b8f7b;background:var(--teal-soft);padding:3px 6px;border-radius:999px}
+  .device-ip{font-size:10.5px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
+  .check{width:21px;height:21px;border-radius:50%;background:var(--teal);display:grid;place-items:center;color:#fff;font-size:12px;flex:none}
+  .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+  .action{height:66px;border-radius:14px;border:1px solid var(--line);background:#fff;display:flex;align-items:center;justify-content:center;gap:9px;font:inherit;font-size:12px;font-weight:650;color:#344742}
+  .action.primary{background:var(--teal);border-color:var(--teal);color:#fff}
+  .action svg{width:20px;height:20px}
+  .queue{margin-top:20px;border:1px solid var(--line);border-radius:15px;background:#fff;overflow:hidden}
+  .queue-head{display:flex;align-items:center;justify-content:space-between;padding:12px 13px 9px}
+  .queue-head strong{font-size:11px;color:#3d4d48}
+  .queue-head span{font-size:10px;color:var(--muted)}
+  .file{display:flex;align-items:center;gap:10px;padding:10px 13px;border-top:1px solid #f0f3f5}
+  .file-icon{width:34px;height:34px;border-radius:9px;background:#f2f6f7;display:grid;place-items:center;flex:none}
+  .file-icon svg{width:17px;height:17px;color:#8c9a9d}
+  .file-main{flex:1;min-width:0}
+  .file-main b{display:block;font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .file-main span{display:block;font-size:9px;color:var(--muted);margin-top:2px}
+  .file-x{width:24px;height:24px;border:0;background:transparent;color:#9aa6a9;font-size:17px}
+  .sendbar{position:absolute;left:20px;right:20px;bottom:65px;height:48px;border-radius:13px;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;box-shadow:0 10px 22px rgba(0,169,143,.24)}
+  .sendbar svg{width:18px;height:18px}
+  .bottomnav{position:absolute;left:0;right:0;bottom:0;height:57px;border-top:1px solid var(--line);background:rgba(255,255,255,.96);display:grid;grid-template-columns:repeat(3,1fr);align-items:center;padding:0 20px 5px}
+  .navitem{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9px;color:#9aa5a7}
+  .navitem svg{width:19px;height:19px}
+  .navitem.active{color:var(--teal);font-weight:700}
+  .navitem.active svg{stroke-width:2.3}
+  /* Receive screen */
+  .recv-hero{margin-top:4px;padding:16px;border-radius:17px;background:var(--dark);color:#fff;position:relative;overflow:hidden}
+  .recv-hero:after{content:"";position:absolute;right:-32px;top:-40px;width:150px;height:150px;border-radius:50%;border:1px solid rgba(0,194,168,.25)}
+  .recv-kicker{font-size:9px;letter-spacing:.18em;color:#7de3d3;font-weight:650}
+  .recv-title{font-size:17px;font-weight:700;margin:7px 0 3px}
+  .recv-sub{font-size:10px;color:#a9bfba}
+  .progress-wrap{margin-top:17px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--soft)}
+  .progress-top{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:#586965}
+  .progress-top strong{font-size:11px;color:var(--teal);font-weight:700}
+  .track{height:6px;border-radius:99px;background:#dce8e6;margin-top:9px;overflow:hidden}
+  .fill{height:100%;width:64%;border-radius:inherit;background:linear-gradient(90deg,var(--teal),var(--teal-2))}
+  .progress-bottom{display:flex;justify-content:space-between;font-size:9px;color:#8a989a;margin-top:7px;font-variant-numeric:tabular-nums}
+  .incoming{margin-top:16px;border:1px solid var(--line);border-radius:15px;background:#fff;overflow:hidden}
+  .incoming-head{padding:12px 13px 10px;display:flex;align-items:center;justify-content:space-between}
+  .incoming-head b{font-size:11px}
+  .incoming-head span{font-size:9px;color:var(--muted)}
+  .incoming .file{border-top-color:#f0f3f5}
+  .done-tag{color:#0b9b83;font-size:9px;font-weight:650}
+  .auto-note{margin-top:12px;display:flex;align-items:center;gap:7px;font-size:9px;color:#81908e}
+  .auto-note svg{width:14px;height:14px;color:var(--teal)}
+  .design-note{width:1000px;margin:24px auto 0;padding:14px 18px;border:1px solid #cbd9dc;border-radius:14px;background:rgba(255,255,255,.46);display:flex;gap:18px;align-items:center;font-size:10px;color:#65777a}
+  .design-note b{color:#2c4c46}
+  .swatches{display:flex;gap:6px;margin-left:auto}
+  .swatch{width:24px;height:24px;border-radius:8px;border:1px solid rgba(0,0,0,.06)}
+</style>
+</head>
+<body>
+<div class="board">
+  <div class="board-head">
+    <div>
+      <div class="board-title">Aster <span>手机端统一稿</span></div>
+      <div class="board-sub">LocalSend 风格 · 发送 / 接收 · 设计稿 v1</div>
+    </div>
+    <div class="board-badge">Aster 2.0 · Mobile UI</div>
+  </div>
+
+  <div class="screens">
+    <div class="frame-wrap">
+      <div class="frame-label"><b>1</b> 发送首页</div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span class="right">▮▮▮ 5G <i></i></span></div>
+        <div class="appbar">
+          <div class="brand">
+            <span class="mark">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5c1.3 5.3 4.2 8.2 9.5 9.5-5.3 1.3-8.2 4.2-9.5 9.5-1.3-5.3-4.2-8.2-9.5-9.5 5.3-1.3 8.2-4.2 9.5-9.5Z" fill="#2E7CF6"/></svg>
+            </span>
+            <div><b>Aster</b><small>星流</small></div>
+          </div>
+          <div class="app-actions">
+            <span class="online">已连接</span>
+            <span class="icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#778680" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.1.4.3.7.6 1 .3.3.7.4 1.1.4H21v4h-.09a1.7 1.7 0 0 0-1.51.6Z"/></svg></span>
+          </div>
+        </div>
+        <div class="page">
+          <div class="page-title">发送</div>
+          <div class="segmented"><button class="active">文件</button><button>文本</button></div>
+          <div class="section-head"><h2>附近设备</h2><span>1 台在线</span></div>
+          <div class="device">
+            <span class="avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span>
+            <div class="device-main">
+              <div class="device-name">JASON-PC <em>在线</em></div>
+              <div class="device-ip">192.168.3.181:47820</div>
+            </div>
+            <span class="check">✓</span>
+          </div>
+          <div class="actions">
+            <button class="action primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>选择文件</button>
+            <button class="action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>选择文件夹</button>
+          </div>
+          <div class="queue">
+            <div class="queue-head"><strong>待发送 · 2 个文件</strong><span>26.8 MB</span></div>
+            <div class="file"><span class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span><span class="file-main"><b>设计稿_终版.pdf</b><span>18.4 MB</span></span><button class="file-x">×</button></div>
+            <div class="file"><span class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 14 2.5-2.5 2 2L16 10l3 3"/></svg></span><span class="file-main"><b>封面图.png</b><span>8.4 MB</span></span><button class="file-x">×</button></div>
+          </div>
+        </div>
+        <div class="sendbar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>发送到 JASON-PC</div>
+        <div class="bottomnav">
+          <span class="navitem active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m22 2-7 20-4-9-9-4Z"/></svg>发送</span>
+          <span class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 21h14"/></svg>接收</span>
+          <span class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.1.4.3.7.6 1 .3.3.7.4 1.1.4H21v4h-.09a1.7 1.7 0 0 0-1.51.6Z"/></svg>设置</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame-wrap">
+      <div class="frame-label"><b>2</b> 接收 / 下载进度</div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span class="right">▮▮▮ 5G <i></i></span></div>
+        <div class="appbar">
+          <div class="brand">
+            <span class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2.5c1.3 5.3 4.2 8.2 9.5 9.5-5.3 1.3-8.2 4.2-9.5 9.5-1.3-5.3-4.2-8.2-9.5-9.5 5.3-1.3 8.2-4.2 9.5-9.5Z" fill="#2E7CF6"/></svg></span>
+            <div><b>Aster</b><small>星流</small></div>
+          </div>
+          <div class="app-actions"><span class="online">已连接</span><span class="icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#778680" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.1.4.3.7.6 1 .3.3.7.4 1.1.4H21v4h-.09a1.7 1.7 0 0 0-1.51.6Z"/></svg></span></div>
+        </div>
+        <div class="page">
+          <div class="page-title">接收</div>
+          <div class="recv-hero">
+            <div class="recv-kicker">FROM JASON-PC</div>
+            <div class="recv-title">正在接收 2 个文件</div>
+            <div class="recv-sub">已自动保存到 下载/Aster</div>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-top"><span>总进度</span><strong>64%</strong></div>
+            <div class="track"><div class="fill"></div></div>
+            <div class="progress-bottom"><span>17.2 MB / 26.8 MB</span><span>8.4 MB/s · 剩余 1s</span></div>
+          </div>
+          <div class="incoming">
+            <div class="incoming-head"><b>文件列表</b><span>自动保存</span></div>
+            <div class="file"><span class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span><span class="file-main"><b>设计稿_终版.pdf</b><span>18.4 MB</span></span><span class="done-tag">已保存</span></div>
+            <div class="file"><span class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 14 2.5-2.5 2 2L16 10l3 3"/></svg></span><span class="file-main"><b>封面图.png</b><span>8.4 MB</span></span><span class="done-tag">下载中</span></div>
+          </div>
+          <div class="auto-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>点“接收”后自动下载并保存，无需二次点击</div>
+        </div>
+        <div class="bottomnav">
+          <span class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m22 2-7 20-4-9-9-4Z"/></svg>发送</span>
+          <span class="navitem active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 21h14"/></svg>接收</span>
+          <span class="navitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.1.4.3.7.6 1 .3.3.7.4 1.1.4H21v4h-.09a1.7 1.7 0 0 0-1.51.6Z"/></svg>设置</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="design-note">
+    <span><b>统一规则：</b>顶部只保留品牌/连接状态；设备卡片突出 IP；主操作使用蓝绿渐变大按钮；接收后自动下载，卡片内实时显示进度与速度。</span>
+    <div class="swatches"><span class="swatch" style="background:#2E7CF6"></span><span class="swatch" style="background:#13B99F"></span><span class="swatch" style="background:#172030"></span><span class="swatch" style="background:#f5f8fa"></span></div>
+  </div>
+</div>
+</body>
+</html>

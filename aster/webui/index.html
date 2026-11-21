@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
+  <meta name="description" content="Aster 星流">
+  <meta name="application-name" content="Aster 星流">
+  <meta name="theme-color" content="#F4F7FB" id="meta-theme">
+  <meta name="color-scheme" content="dark light">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Aster">
+  <title>Aster · 星流</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <!-- 图标库：全部为本地内联 SVG，不依赖任何外部资源 -->
+  <svg class="svg-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="brand-grad" x1="3.4" y1="3.2" x2="20.6" y2="20.8" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#8EC5FF"></stop>
+        <stop offset=".46" stop-color="#4C9AFF"></stop>
+        <stop offset="1" stop-color="#38D6B8"></stop>
+      </linearGradient>
+      <linearGradient id="orbit-grad" x1="3.4" y1="5.2" x2="20.6" y2="18.8" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#5FA8FF"></stop>
+        <stop offset=".55" stop-color="#2E7CF6"></stop>
+        <stop offset="1" stop-color="#13B99F"></stop>
+      </linearGradient>
+    </defs>
+
+    <symbol id="i-aster" viewBox="0 0 24 24">
+      <path d="M12 1.5C13.3 7 17 10.7 22.5 12 17 13.3 13.3 17 12 22.5 10.7 17 7 13.3 1.5 12 7 10.7 10.7 7 12 1.5Z" fill="url(#brand-grad)"></path>
+      <circle cx="20.3" cy="4.2" r="1.05" fill="#8FF3FF"></circle>
+    </symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24">
+      <path d="M12 16.2V4.4m0 0 4.2 4.2M12 4.4 7.8 8.6M4 15.8v2.4A1.8 1.8 0 0 0 5.8 20h12.4a1.8 1.8 0 0 0 1.8-1.8v-2.4"></path>
+    </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24">
+      <path d="M12 3.8v11.8m0 0 4.2-4.2M12 15.6l-4.2-4.2M4 16v2.2A1.8 1.8 0 0 0 5.8 20h12.4a1.8 1.8 0 0 0 1.8-1.8V16"></path>
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24">
+      <path d="M3.4 7.9A2.4 2.4 0 0 1 5.8 5.5h3.3c.64 0 1.25.25 1.7.7l1.34 1.34c.23.22.53.35.85.35h5.23a2.4 2.4 0 0 1 2.4 2.4v6.3a2.4 2.4 0 0 1-2.4 2.4H5.8a2.4 2.4 0 0 1-2.4-2.4V7.9Z"></path>
+    </symbol>
+    <symbol id="i-text" viewBox="0 0 24 24">
+      <rect x="3.8" y="3.8" width="16.4" height="16.4" rx="3.4"></rect>
+      <path d="M8 8.3h8M8 12h8M8 15.7h4.8"></path>
+    </symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24">
+      <path d="M4.2 7.2h9.1M17.6 7.2h2.2M4.2 12h4.4M11.9 12h7.9M4.2 16.8h10.4M18.9 16.8h.9"></path>
+      <circle cx="15.4" cy="7.2" r="2.1"></circle>
+      <circle cx="9.7" cy="12" r="2.1"></circle>
+      <circle cx="16.7" cy="16.8" r="2.1"></circle>
+    </symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="4.1"></circle>
+      <path d="M12 2.7v2.1M12 19.2v2.1M2.7 12h2.1M19.2 12h2.1M5.42 5.42l1.49 1.49M17.09 17.09l1.49 1.49M18.58 5.42l-1.49 1.49M6.91 17.09l-1.49 1.49"></path>
+    </symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24">
+      <path d="M20.1 14.2A8.3 8.3 0 0 1 9.8 3.9a8.3 8.3 0 1 0 10.3 10.3Z"></path>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24">
+      <path d="M6.2 6.2 17.8 17.8M17.8 6.2 6.2 17.8"></path>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24">
+      <path d="m4.8 12.6 4.7 4.7L19.4 7.4"></path>
+    </symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24">
+      <path d="M12 3.3 21 19.4H3L12 3.3Z"></path>
+      <path d="M12 9.4v4.2"></path>
+      <circle cx="12" cy="16.7" r=".9" fill="currentColor" stroke="none"></circle>
+    </symbol>
+    <symbol id="i-info" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.7"></circle>
+      <path d="M12 11v5.2"></path>
+      <circle cx="12" cy="7.9" r=".9" fill="currentColor" stroke="none"></circle>
+    </symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24">
+      <rect x="8.8" y="8.8" width="11" height="11" rx="2.6"></rect>
+      <path d="M6.9 15.2H5.7a1.9 1.9 0 0 1-1.9-1.9V5.7a1.9 1.9 0 0 1 1.9-1.9h7.6a1.9 1.9 0 0 1 1.9 1.9v1.2"></path>
+    </symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24">
+      <path d="M4.2 12h15.6m0 0-5.5-5.5m5.5 5.5-5.5 5.5"></path>
+    </symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24">
+      <path d="m9.2 5.4 6.6 6.6-6.6 6.6"></path>
+    </symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24">
+      <rect x="3.2" y="4.4" width="17.6" height="12" rx="2.5"></rect>
+      <path d="M9 20h6M12 16.4V20"></path>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+      <path d="M20 11.5a8 8 0 1 0-2.05 5.6M20 4.6v6.3h-6.3"></path>
+    </symbol>
+    <symbol id="i-file" viewBox="0 0 24 24">
+      <path d="M13.4 3.8H7.2a2 2 0 0 0-2 2v12.4a2 2 0 0 0 2 2h9.6a2 2 0 0 0 2-2V9.2l-5.4-5.4Z"></path>
+      <path d="M13.4 3.8v5.4h5.4"></path>
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24">
+      <rect x="4.8" y="10.4" width="14.4" height="9.8" rx="2.6"></rect>
+      <path d="M8 10.4V8a4 4 0 0 1 8 0v2.4"></path>
+    </symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24">
+      <path d="M3.4 8.9a13.2 13.2 0 0 1 17.2 0M6.7 12.4a8.4 8.4 0 0 1 10.6 0M10 15.9a3.6 3.6 0 0 1 4 0"></path>
+      <circle cx="12" cy="19.2" r="1.15" fill="currentColor" stroke="none"></circle>
+    </symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.7"></circle>
+      <path d="M12 7.4v5l3.2 1.9"></path>
+    </symbol>
+    <symbol id="i-link" viewBox="0 0 24 24">
+      <path d="m9.8 14.2 4.4-4.4M7.6 17.8l-1.3 1.3a3.8 3.8 0 0 1-5.4-5.4l3.3-3.3a3.8 3.8 0 0 1 5.4 0"></path>
+      <path d="m16.4 6.2 1.3-1.3a3.8 3.8 0 0 1 5.4 5.4l-3.3 3.3a3.8 3.8 0 0 1-5.4 0"></path>
+    </symbol>
+    <symbol id="i-send" viewBox="0 0 24 24">
+      <path d="M21 3.3 3.6 9.9l6.9 3.5 3.5 6.9L21 3.3Z"></path>
+      <path d="m10.5 13.4 4.3-4.3"></path>
+    </symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24">
+      <rect x="6.3" y="2.8" width="11.4" height="18.4" rx="2.8"></rect>
+      <path d="M10.4 5.2h3.2M10.8 18.4h2.4"></path>
+    </symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24">
+      <path d="M4.5 6.8h15M9 6.8V4.9a1.4 1.4 0 0 1 1.4-1.4h3.2A1.4 1.4 0 0 1 15 4.9v1.9M6.4 6.8l.9 12.1a1.8 1.8 0 0 0 1.8 1.7h5.8a1.8 1.8 0 0 0 1.8-1.7l.9-12.1M10 10.2v6.2M14 10.2v6.2"></path>
+    </symbol>
+  </svg>
+
+  <div class="backdrop" aria-hidden="true">
+    <span class="backdrop-glow glow-a"></span>
+    <span class="backdrop-glow glow-b"></span>
+    <span class="backdrop-glow glow-c"></span>
+    <span class="backdrop-stars"></span>
+    <span class="backdrop-grid"></span>
+  </div>
+
+  <noscript>
+    <div class="noscript-card glass">
+      <h1>需要启用 JavaScript</h1>
+      <p>星流的网页界面依赖 JavaScript 工作，请在浏览器设置中允许后重新打开本页。</p>
+    </div>
+  </noscript>
+
+  <!-- 启动过渡 -->
+  <div id="boot-view" class="boot-view" role="status" aria-live="polite">
+    <div class="boot-emblem" aria-hidden="true">
+      <span class="orbit orbit-slow"></span>
+      <span class="orbit orbit-fast"></span>
+      <svg class="boot-logo"><use href="#i-aster"></use></svg>
+    </div>
+    <p class="boot-title">正在唤醒星流</p>
+  </div>
+
+  <!-- 配对 -->
+  <section id="pair-view" class="pair-view" aria-labelledby="pair-title" hidden>
+    <div class="pair-aurora" aria-hidden="true"></div>
+    <div class="pair-card glass">
+      <div class="pair-emblem" aria-hidden="true">
+        <span class="orbit orbit-slow"></span>
+        <span class="orbit orbit-fast"></span>
+        <svg class="pair-logo"><use href="#i-aster"></use></svg>
+      </div>
+      <p class="eyebrow pair-eyebrow" hidden></p>
+      <h1 id="pair-title" class="pair-title">连接 <span class="gradient-text">Aster</span></h1>
+
+      <form id="pair-form" class="pair-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="pair-code">配对码</label>
+          <input
+            id="pair-code"
+            class="code-input"
+            name="code"
+            type="text"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            autocapitalize="off"
+            spellcheck="false"
+            maxlength="6"
+            pattern="[0-9]{6}"
+            placeholder="······"
+            aria-describedby="pair-error pair-hint"
+          >
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="pair-name">手机名称</label>
+          <input
+            id="pair-name"
+            class="text-input"
+            name="name"
+            type="text"
+            maxlength="24"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="我的手机"
+          >
+        </div>
+
+        <p id="pair-hint" class="pair-hint" hidden></p>
+        <p id="pair-error" class="form-error" role="alert" hidden></p>
+
+        <button id="pair-submit" class="btn btn-primary btn-block pair-submit" type="submit">
+          <span class="btn-label">连接电脑</span>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+      </form>
+
+    </div>
+  </section>
+
+  <!-- 主应用 -->
+  <div id="app-view" class="app-view" data-tab="send" data-mode="files" hidden>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand" aria-label="Aster 星流">
+          <span class="brand-mark" aria-hidden="true"><svg class="brand-logo"><use href="#i-aster"></use></svg></span>
+          <span class="brand-words">
+            <span class="brand-name">Aster</span>
+            <span class="brand-cn">星流</span>
+          </span>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="conn-chip" class="conn-chip is-connecting" type="button" aria-live="polite" aria-label="连接状态，点击刷新连接">
+            <span class="conn-dot" aria-hidden="true"></span>
+            <span id="conn-label">连接中</span>
+          </button>
+          <button id="theme-toggle" class="icon-btn" type="button" aria-label="切换为浅色主题" title="切换主题">
+            <svg class="icon theme-icon sun-icon" aria-hidden="true"><use href="#i-sun"></use></svg>
+            <svg class="icon theme-icon moon-icon" aria-hidden="true"><use href="#i-moon"></use></svg>
+          </button>
+          <button id="settings-btn" class="icon-btn" type="button" aria-label="打开设置" title="设置" aria-haspopup="dialog">
+            <svg class="icon" aria-hidden="true"><use href="#i-sliders"></use></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="main" tabindex="-1">
+      <div class="mobile-page-head">
+        <h1 id="mobile-page-title">发送</h1>
+      </div>
+      <div id="send-mode-switch" class="mode-switch" role="tablist" aria-label="发送类型">
+        <button class="mode-switch-btn is-active" type="button" data-mode="files" role="tab" aria-selected="true">文件</button>
+        <button class="mode-switch-btn" type="button" data-mode="text" role="tab" aria-selected="false">文本</button>
+      </div>
+
+      <!-- 设备 -->
+      <section class="hero send-tab-only" aria-labelledby="hero-title">
+        <h1 id="hero-title" class="visually-hidden">发送到附近设备</h1>
+        <div class="device-card glass">
+          <span class="device-avatar" aria-hidden="true">
+            <svg class="icon"><use href="#i-monitor"></use></svg>
+          </span>
+          <div class="device-info">
+            <div class="device-name-row">
+              <span id="device-name" class="device-name">正在连接电脑</span>
+              <span class="device-status"><span class="live-dot" aria-hidden="true"></span>在线</span>
+            </div>
+            <p class="device-addr"><span id="device-addr">—</span></p>
+          </div>
+          <button id="device-copy" class="icon-btn icon-btn-sm" type="button" aria-label="复制电脑网页地址" title="复制网页地址">
+            <svg class="icon" aria-hidden="true"><use href="#i-copy"></use></svg>
+          </button>
+        </div>
+
+        <div class="hero-meta">
+          <span class="mini-chip">
+            <svg class="icon" aria-hidden="true"><use href="#i-phone"></use></svg>
+            本网页 <strong id="web-name">我的手机</strong>
+          </span>
+          <span id="peers-chip" class="mini-chip">
+            <svg class="icon" aria-hidden="true"><use href="#i-monitor"></use></svg>
+            <span id="peers-label">仅此一台</span>
+          </span>
+        </div>
+      </section>
+
+      <!-- 待接收 -->
+      <section id="offers-section" class="section offers-section receive-tab-only" aria-labelledby="offers-title" hidden>
+        <div class="section-head">
+          <h2 id="offers-title"><span class="live-dot" aria-hidden="true"></span><span id="offers-label">待你接收</span></h2>
+          <span id="offers-count" class="count-badge">0</span>
+        </div>
+        <div id="offers-list" class="stack"></div>
+      </section>
+
+      <!-- 发送 -->
+      <section class="section actions-section send-tab-only files-mode-only" aria-label="发送文件或文本">
+        <button id="send-files" class="send-btn" type="button">
+          <span class="send-orb" aria-hidden="true"><svg class="icon"><use href="#i-upload"></use></svg></span>
+          <span class="send-copy">
+            <strong>发送文件</strong>
+          </span>
+          <span class="send-arrow" aria-hidden="true"><svg class="icon"><use href="#i-arrow-right"></use></svg></span>
+        </button>
+
+        <div class="secondary-actions">
+          <button id="send-folder" class="glass-action" type="button">
+            <svg class="icon" aria-hidden="true"><use href="#i-folder"></use></svg>
+            <span>发送文件夹</span>
+          </button>
+          <button id="send-text" class="glass-action" type="button">
+            <svg class="icon" aria-hidden="true"><use href="#i-text"></use></svg>
+            <span>发送文本</span>
+          </button>
+        </div>
+
+        <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="拖拽文件到此处，或点击选择文件">
+          <span class="dropzone-icon" aria-hidden="true"><svg class="icon"><use href="#i-upload"></use></svg></span>
+          <span class="dropzone-copy">
+            <strong>拖拽文件到这里</strong>
+          </span>
+        </div>
+
+        <input id="file-input" type="file" multiple hidden>
+        <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
+      </section>
+
+      <!-- 传输 -->
+      <section id="transfers-section" class="section" aria-labelledby="transfers-title">
+        <div class="section-head">
+          <h2 id="transfers-title">传输</h2>
+          <span id="transfers-summary" class="section-note"></span>
+        </div>
+        <div id="transfers-list" class="stack"></div>
+        <div id="transfers-empty" class="empty-card glass">
+          <span class="empty-emblem" aria-hidden="true"><svg class="empty-logo"><use href="#i-aster"></use></svg></span>
+          <p>还没有开始传输</p>
+        </div>
+      </section>
+
+      <!-- 文本 -->
+      <section class="section send-tab-only text-mode-only" aria-labelledby="texts-title">
+        <div class="section-head">
+          <h2 id="texts-title">文本</h2>
+        </div>
+        <form id="text-form" class="text-card glass">
+          <label class="visually-hidden" for="text-input">发送文本到电脑</label>
+          <textarea id="text-input" class="text-area" rows="3" maxlength="20000" placeholder="文本" aria-describedby="text-count"></textarea>
+          <div class="text-card-foot">
+            <span id="text-count" class="char-count">0 / 20000</span>
+            <button id="text-send" class="btn btn-primary btn-sm" type="submit">
+              <span>发送</span>
+              <svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg>
+            </button>
+          </div>
+        </form>
+
+        <div id="texts-card" class="texts-card glass" hidden>
+          <div id="texts-list" class="texts-list"></div>
+          <button id="texts-toggle" class="texts-toggle" type="button" hidden>展开全部</button>
+        </div>
+        <p id="texts-empty" class="empty-inline">最近还没有文本记录</p>
+      </section>
+
+      <!-- 历史 -->
+      <section class="section history-section receive-tab-only" aria-labelledby="history-title">
+        <div class="section-head">
+          <h2 id="history-title">最近记录</h2>
+          <button id="open-history" class="link-btn" type="button" aria-haspopup="dialog">
+            全部历史
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+          </button>
+        </div>
+        <div id="history-preview" class="history-card glass"></div>
+        <p id="history-empty" class="empty-inline">暂无历史记录</p>
+      </section>
+
+      <footer class="app-footer">
+        <span class="footer-mark" aria-hidden="true"><svg class="footer-logo"><use href="#i-aster"></use></svg></span>
+        <span>Aster <span class="dot-sep">·</span> 星流</span>
+        <span class="footer-version" id="footer-version">v—</span>
+      </footer>
+    </main>
+
+    <nav id="bottom-nav" class="bottom-nav" aria-label="主导航">
+      <button class="bottom-nav-item is-active" type="button" data-tab="send" aria-current="page">
+        <svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg>
+        <span>发送</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-tab="receive">
+        <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+        <span>接收</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-tab="settings">
+        <svg class="icon" aria-hidden="true"><use href="#i-sliders"></use></svg>
+        <span>设置</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- 浮层 -->
+  <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+
+  <aside id="history-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="history-sheet-title" hidden>
+    <div class="sheet-grabber" aria-hidden="true"></div>
+    <header class="sheet-head">
+      <div>
+        <h2 id="history-sheet-title">全部历史</h2>
+      </div>
+      <button id="history-close" class="icon-btn" type="button" aria-label="关闭历史">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <div id="history-sheet-list" class="history-list"></div>
+      <p id="history-sheet-empty" class="empty-inline" hidden>还没有历史记录</p>
+    </div>
+  </aside>
+
+  <aside id="settings-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <div class="sheet-grabber" aria-hidden="true"></div>
+    <header class="sheet-head">
+      <div>
+        <h2 id="settings-title">设置</h2>
+      </div>
+      <button id="settings-close" class="icon-btn" type="button" aria-label="关闭设置">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <div class="settings-profile glass-inset">
+        <span class="settings-avatar" aria-hidden="true"><svg class="icon"><use href="#i-monitor"></use></svg></span>
+        <div class="settings-profile-copy">
+          <span id="settings-web-name" class="settings-profile-name">我的手机</span>
+          <span id="settings-web-meta" class="settings-profile-meta">已与这台电脑配对</span>
+        </div>
+        <span class="paired-badge"><span class="live-dot" aria-hidden="true"></span>已配对</span>
+      </div>
+
+      <section class="settings-group" aria-labelledby="settings-transfer-title">
+        <h3 id="settings-transfer-title" class="settings-group-title">传输</h3>
+        <div class="setting-row">
+          <span class="setting-copy">
+            <span>自动接受传输</span>
+          </span>
+          <button id="auto-accept-toggle" class="switch" type="button" role="switch" aria-checked="false" aria-label="自动接受传输">
+            <span class="switch-knob" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="setting-row">
+          <span class="setting-copy">
+            <span>HTTPS 加密优先</span>
+          </span>
+          <button id="https-toggle" class="switch" type="button" role="switch" aria-checked="false" aria-label="HTTPS 加密优先">
+            <span class="switch-knob" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy">
+            <span>当前访问</span>
+            <small id="settings-scheme">HTTP 未加密</small>
+          </span>
+          <button id="open-https" class="btn btn-ghost btn-xs" type="button">改用 HTTPS</button>
+        </div>
+        <div class="setting-row">
+          <span class="setting-copy">
+            <span>主题</span>
+          </span>
+          <span class="segmented" role="group" aria-label="主题选择">
+            <button class="segmented-btn" type="button" data-theme-choice="light">浅色</button>
+            <button class="segmented-btn" type="button" data-theme-choice="dark">深色</button>
+          </span>
+        </div>
+      </section>
+
+      <section class="settings-group" aria-labelledby="settings-computer-title">
+        <h3 id="settings-computer-title" class="settings-group-title">这台电脑</h3>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span>电脑名称</span></span>
+          <span id="settings-device-name" class="setting-value">—</span>
+        </div>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span>局域网地址</span></span>
+          <span id="settings-address" class="setting-value">—</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-copy">
+            <span>下载目录</span>
+          </span>
+          <span class="setting-value-wrap">
+            <span id="settings-dir" class="setting-value setting-value-dir">—</span>
+            <button id="copy-dir" class="icon-btn icon-btn-xs" type="button" aria-label="复制下载目录" title="复制下载目录">
+              <svg class="icon" aria-hidden="true"><use href="#i-copy"></use></svg>
+            </button>
+          </span>
+        </div>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span>网页配对</span></span>
+          <span id="settings-pairing" class="setting-value">—</span>
+        </div>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span>网页连接</span></span>
+          <span id="settings-sessions" class="setting-value">—</span>
+        </div>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span>版本</span></span>
+          <span id="settings-version" class="setting-value">—</span>
+        </div>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span>GitHub</span></span>
+          <a class="setting-value about-link" href="https://github.com/JASON-SHEN-0225" target="_blank" rel="noopener">JASON-SHEN-0225</a>
+        </div>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span>邮箱</span></span>
+          <a class="setting-value about-link" href="mailto:jasonshen0225@163.com">jasonshen0225@163.com</a>
+        </div>
+        <div id="install-row" class="setting-row" hidden>
+          <span class="setting-copy">
+            <span>添加到主屏幕</span>
+          </span>
+          <button id="install-btn" class="btn btn-ghost btn-xs" type="button">添加</button>
+        </div>
+      </section>
+
+      <button id="disconnect-btn" class="btn btn-danger-ghost btn-block" type="button">重新配对</button>
+    </div>
+  </aside>
+
+  <aside id="send-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="send-sheet-title" hidden>
+    <div class="sheet-grabber" aria-hidden="true"></div>
+    <header class="sheet-head">
+      <div>
+        <h2 id="send-sheet-title">确认文件</h2>
+      </div>
+      <button id="send-close" class="icon-btn" type="button" aria-label="关闭发送面板">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <div class="send-target glass-inset">
+        <span class="settings-avatar" aria-hidden="true"><svg class="icon"><use href="#i-monitor"></use></svg></span>
+        <div class="send-target-copy">
+          <span>发送到</span>
+          <strong id="send-target-name">这台电脑</strong>
+        </div>
+      </div>
+
+      <div id="send-list" class="send-list"></div>
+
+      <div class="send-summary">
+        <span>共 <strong id="send-count">0</strong> 个文件</span>
+        <span id="send-total" class="send-total">0 B</span>
+      </div>
+    </div>
+    <footer class="sheet-foot">
+      <button id="send-cancel" class="btn btn-ghost" type="button">取消</button>
+      <button id="send-confirm" class="btn btn-primary grow" type="button">发送</button>
+    </footer>
+  </aside>
+
+  <div id="install-banner" class="install-banner" role="complementary" aria-label="添加到主屏幕提示" hidden>
+    <span class="install-emblem" aria-hidden="true"><svg class="install-logo"><use href="#i-aster"></use></svg></span>
+    <span class="install-copy">
+      <strong>把星流放到主屏幕</strong>
+    </span>
+    <button id="install-add" class="btn btn-primary btn-xs" type="button">添加</button>
+    <button id="install-dismiss" class="icon-btn icon-btn-xs" type="button" aria-label="不再提示">
+      <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+    </button>
+  </div>
+
+  <div id="toast-region" class="toast-region" role="status" aria-live="polite" aria-atomic="false"></div>
+  <div id="sr-status" class="visually-hidden" role="status" aria-live="polite"></div>
+
+  <!-- 动态列表模板（避免 innerHTML 拼接） -->
+  <template id="tpl-transfer">
+    <article class="transfer-card glass">
+      <div class="transfer-top">
+        <span class="transfer-icon" aria-hidden="true"><svg class="icon"><use href="#i-upload"></use></svg></span>
+        <div class="transfer-heading">
+          <div class="transfer-title-row">
+            <h3 class="transfer-title"></h3>
+            <span class="status-pill"></span>
+          </div>
+          <p class="transfer-sub"></p>
+        </div>
+      </div>
+      <p class="transfer-current" hidden></p>
+      <div class="progress" aria-hidden="true"><span class="progress-fill"></span></div>
+      <div class="transfer-foot">
+        <span class="progress-pct"></span>
+        <span class="transfer-stats"></span>
+      </div>
+      <p class="transfer-error" hidden></p>
+    </article>
+  </template>
+
+  <template id="tpl-offer-files">
+    <article class="offer-card glass">
+      <div class="offer-top">
+        <span class="offer-avatar" aria-hidden="true"><svg class="icon"><use href="#i-monitor"></use></svg></span>
+        <div class="offer-heading">
+          <p class="offer-kicker">来自电脑</p>
+          <h3 class="offer-title"></h3>
+          <p class="offer-sub"></p>
+        </div>
+        <span class="offer-pill"></span>
+      </div>
+      <div class="offer-files"></div>
+      <div class="offer-progress" hidden>
+        <div class="offer-progress-head">
+          <span class="offer-progress-text"></span>
+          <span class="offer-progress-speed"></span>
+        </div>
+        <div class="offer-progress-track"><span class="offer-progress-fill"></span></div>
+      </div>
+      <div class="offer-actions"></div>
+    </article>
+  </template>
+
+  <template id="tpl-offer-text">
+    <article class="offer-card offer-card-text glass">
+      <div class="offer-top">
+        <span class="offer-avatar" aria-hidden="true"><svg class="icon"><use href="#i-text"></use></svg></span>
+        <div class="offer-heading">
+          <p class="offer-kicker">来自电脑的文本</p>
+          <h3 class="offer-title"></h3>
+          <p class="offer-sub"></p>
+        </div>
+        <span class="offer-pill"></span>
+      </div>
+      <blockquote class="offer-quote"></blockquote>
+      <div class="offer-actions"></div>
+    </article>
+  </template>
+
+  <template id="tpl-offer-file">
+    <div class="offer-file">
+      <span class="offer-file-icon" aria-hidden="true"><svg class="icon"><use href="#i-file"></use></svg></span>
+      <span class="offer-file-info">
+        <span class="offer-file-name"></span>
+        <span class="offer-file-meta"></span>
+      </span>
+      <span class="offer-file-side"></span>
+    </div>
+  </template>
+
+  <template id="tpl-text-item">
+    <div class="text-item">
+      <div class="text-main">
+        <p class="text-content"></p>
+        <p class="text-meta">
+          <span class="text-kind"></span>
+          <span class="dot-sep">·</span>
+          <time class="text-time"></time>
+        </p>
+      </div>
+      <button class="icon-btn icon-btn-xs copy-btn" type="button" aria-label="复制文本" title="复制">
+        <svg class="icon" aria-hidden="true"><use href="#i-copy"></use></svg>
+      </button>
+    </div>
+  </template>
+
+  <template id="tpl-history-item">
+    <div class="history-item">
+      <span class="history-dot" aria-hidden="true"></span>
+      <div class="history-main">
+        <p class="history-title"></p>
+        <p class="history-sub"></p>
+      </div>
+      <div class="history-tail">
+        <time class="history-time"></time>
+        <span class="history-state"></span>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-file-row">
+    <div class="file-row">
+      <span class="file-row-icon" aria-hidden="true"><svg class="icon"><use href="#i-file"></use></svg></span>
+      <span class="file-row-info">
+        <span class="file-row-name"></span>
+        <span class="file-row-meta"></span>
+      </span>
+      <button class="icon-btn icon-btn-xs file-remove" type="button" aria-label="移除这个文件">
+        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+      </button>
+    </div>
+  </template>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

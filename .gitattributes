@@ -1,0 +1,26 @@
+# 默认按文本处理：仓库内统一 LF，检出时按平台转换由各规则决定
+* text=auto eol=lf
+
+# Windows 脚本需要 CRLF，否则 cmd 的标签/续行可能解析异常
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Gradle 启动脚本保持 LF
+gradlew text eol=lf
+
+# 二进制文件：不做行尾转换与文本 diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.apk binary
+*.aab binary
+*.jar binary
+*.jks binary
+*.keystore binary
+*.zip binary
+*.7z binary

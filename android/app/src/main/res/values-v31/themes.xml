@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Aster" parent="Theme.Aster.Base">
+        <item name="android:windowSplashScreenBackground">@color/aster_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/aster_star</item>
+        <item name="android:windowSplashScreenAnimationDuration">120</item>
+    </style>
+</resources>
