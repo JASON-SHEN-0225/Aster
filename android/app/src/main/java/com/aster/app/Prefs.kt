@@ -41,9 +41,29 @@ class Prefs(context: Context) {
             .apply()
     }
 
+    // ---------------------------------------------------------------- 设备名
+
+    fun customDeviceName(): String? = sp.getString(KEY_DEVICE_NAME, null)
+
+    fun saveCustomDeviceName(name: String) {
+        sp.edit().putString(KEY_DEVICE_NAME, name).apply()
+    }
+
+    fun clearCustomDeviceName() {
+        sp.edit().remove(KEY_DEVICE_NAME).apply()
+    }
+
+    fun fallbackDeviceName(): String? = sp.getString(KEY_DEVICE_FALLBACK, null)
+
+    fun saveFallbackDeviceName(name: String) {
+        sp.edit().putString(KEY_DEVICE_FALLBACK, name).apply()
+    }
+
     companion object {
         private const val KEY_HOST = "last_host"
         private const val KEY_PORT = "last_port"
         private const val KEY_HTTPS = "last_https"
+        private const val KEY_DEVICE_NAME = "device_name"
+        private const val KEY_DEVICE_FALLBACK = "device_name_fallback"
     }
 }

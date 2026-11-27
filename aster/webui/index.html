@@ -189,7 +189,7 @@
         </div>
 
         <div class="field">
-          <label class="field-label" for="pair-name">手机名称</label>
+          <label class="field-label" for="pair-name">本机名称</label>
           <input
             id="pair-name"
             class="text-input"
@@ -198,7 +198,7 @@
             maxlength="24"
             autocomplete="off"
             spellcheck="false"
-            placeholder="我的手机"
+            placeholder="网页端设备"
           >
         </div>
 
@@ -273,7 +273,7 @@
         <div class="hero-meta">
           <span class="mini-chip">
             <svg class="icon" aria-hidden="true"><use href="#i-phone"></use></svg>
-            本网页 <strong id="web-name">我的手机</strong>
+            本网页 <strong id="web-name">网页端设备</strong>
           </span>
           <span id="peers-chip" class="mini-chip">
             <svg class="icon" aria-hidden="true"><use href="#i-monitor"></use></svg>
@@ -327,7 +327,10 @@
       <section id="transfers-section" class="section" aria-labelledby="transfers-title">
         <div class="section-head">
           <h2 id="transfers-title">传输</h2>
-          <span id="transfers-summary" class="section-note"></span>
+          <div class="section-head-actions">
+            <span id="transfers-summary" class="section-note"></span>
+            <button id="cancel-all-transfers" class="btn btn-ghost btn-xs" type="button" hidden>取消全部</button>
+          </div>
         </div>
         <div id="transfers-list" class="stack"></div>
         <div id="transfers-empty" class="empty-card glass">
@@ -429,11 +432,35 @@
       <div class="settings-profile glass-inset">
         <span class="settings-avatar" aria-hidden="true"><svg class="icon"><use href="#i-monitor"></use></svg></span>
         <div class="settings-profile-copy">
-          <span id="settings-web-name" class="settings-profile-name">我的手机</span>
+          <span id="settings-web-name" class="settings-profile-name">网页端设备</span>
           <span id="settings-web-meta" class="settings-profile-meta">已与这台电脑配对</span>
         </div>
         <span class="paired-badge"><span class="live-dot" aria-hidden="true"></span>已配对</span>
       </div>
+
+      <section class="settings-group" aria-labelledby="settings-local-title">
+        <h3 id="settings-local-title" class="settings-group-title">本机</h3>
+        <div class="setting-row">
+          <label class="setting-copy" for="settings-name-input"><span>本机名称</span></label>
+          <span class="setting-name-field">
+            <input
+              id="settings-name-input"
+              class="text-input setting-name-input"
+              type="text"
+              maxlength="24"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="网页端设备"
+              aria-label="本机名称"
+            >
+            <button id="settings-name-save" class="btn btn-ghost btn-xs" type="button">保存</button>
+          </span>
+        </div>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span>设备类型</span></span>
+          <span id="settings-client-type" class="setting-value">网页端</span>
+        </div>
+      </section>
 
       <section class="settings-group" aria-labelledby="settings-transfer-title">
         <h3 id="settings-transfer-title" class="settings-group-title">传输</h3>
@@ -520,6 +547,31 @@
         </div>
       </section>
 
+      <section class="settings-group" aria-labelledby="settings-update-title">
+        <h3 id="settings-update-title" class="settings-group-title">版本与更新</h3>
+        <div class="setting-row setting-row-static">
+          <span class="setting-copy"><span id="settings-version-label">当前版本</span></span>
+          <span id="settings-app-version" class="setting-value">—</span>
+        </div>
+        <div class="setting-row">
+          <span class="setting-copy">
+            <span>检查更新</span>
+            <small id="settings-update-status" class="update-status">检查是否有新版本</small>
+          </span>
+          <button id="check-update" class="btn btn-ghost btn-xs" type="button">
+            <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>
+            检查更新
+          </button>
+        </div>
+        <div id="update-download-row" class="setting-row" hidden>
+          <span class="setting-copy">
+            <span id="update-download-label">下载新版本</span>
+            <small>将打开最新版本的下载地址</small>
+          </span>
+          <button id="update-download" class="btn btn-primary btn-xs" type="button">下载</button>
+        </div>
+      </section>
+
       <button id="disconnect-btn" class="btn btn-danger-ghost btn-block" type="button">重新配对</button>
     </div>
   </aside>
@@ -589,6 +641,7 @@
         <span class="progress-pct"></span>
         <span class="transfer-stats"></span>
       </div>
+      <div class="transfer-actions" hidden></div>
       <p class="transfer-error" hidden></p>
     </article>
   </template>

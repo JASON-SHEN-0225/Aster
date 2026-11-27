@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -17,6 +18,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
+import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.util.Base64
 import android.util.Log
@@ -41,12 +43,17 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.zxing.integration.android.IntentIntegrator
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import android.net.http.SslError
 import android.webkit.SslErrorHandler
 
@@ -68,17 +75,29 @@ class MainActivity : Activity() {
     private lateinit var portHint: TextView
     private lateinit var connectStatus: TextView
     private lateinit var connectButton: Button
+    private lateinit var shareBanner: TextView
+
+    private lateinit var sharedInbox: SharedInbox
+    private lateinit var shareServer: SharedFileServer
+
+    private val shareExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "aster-share").also { it.isDaemon = true }
+    }
 
     private var current: Endpoint? = null
     private var pageFailed = false
+    private var pageLoaded = false
     private var lastThemeKey = ""
     private var suppressSwitchEvent = false
     private var pendingFileCallback: ValueCallback<Array<Uri>>? = null
     private val pendingDownloads = ArrayDeque<PendingDownload>()
     private var storagePermissionAsked = false
     private var notificationPermissionAsked = false
-    private var autoScanTriggered = false
     private var scanRequestInFlight = false
+    private var transferActive = false
+    private var lastTransferNotifyAt = 0L
+    private var updateCheckInFlight = false
+    private var updateDialog: AlertDialog? = null
     private var sslDialog: AlertDialog? = null
     private val sslQueue = mutableListOf<SslErrorHandler>()
     private var sslCertKey: String? = null
@@ -90,6 +109,12 @@ class MainActivity : Activity() {
     private var backProbePending = false
 
     private val ui = Handler(Looper.getMainLooper())
+
+    private val transferCancelFallback = Runnable {
+        if (transferActive || TransferService.isRunning) {
+            onBridgeFinishTransfer(false, getString(R.string.transfer_cancelled))
+        }
+    }
 
     private val timeoutRunnable = Runnable {
         if (webLayer.visibility != View.VISIBLE || pageFailed) return@Runnable
@@ -125,14 +150,23 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
 
         prefs = Prefs(this)
+        sharedInbox = SharedInbox(this)
+        shareServer = SharedFileServer(sharedInbox)
         bindViews()
         applyInsets()
         setupWebView()
         setupConnectUi()
+        TransferBus.register { onTransferCancelRequested() }
 
-        // 启动先停在连接页，并自动进入扫码；不再自动连接上次地址。
+        // 启动停在连接主界面：只预填上次地址，不自动扫码、不自动连接。
         showConnectScreen()
-        autoScanIfPossible()
+        handleShareIntent(intent)
+        refreshShareBannerAsync()
+
+        // 启动检查更新只做一次；失败静默。
+        if (savedInstanceState == null) {
+            ui.post { checkForUpdates(manual = false) }
+        }
     }
 
     private fun bindViews() {
@@ -151,6 +185,7 @@ class MainActivity : Activity() {
         portHint = findViewById(R.id.port_hint)
         connectStatus = findViewById(R.id.connect_status)
         connectButton = findViewById(R.id.connect_button)
+        shareBanner = findViewById(R.id.share_banner)
     }
 
     private fun applyInsets() {
@@ -186,8 +221,13 @@ class MainActivity : Activity() {
         settings.loadWithOverviewMode = false
         settings.mediaPlaybackRequiresUserGesture = true
         settings.setGeolocationEnabled(false)
+        // 网页可能是 HTTPS；共享暂存 HTTP 服务只监听 127.0.0.1，放行回环 mixed content 的 fetch。
+        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.textZoom = 100
+
+        // 必须在任何 loadUrl 之前注册；名字由网页端约定为 AsterShell。
+        webView.addJavascriptInterface(AsterShell(this), "AsterShell")
 
         webView.setBackgroundColor(ContextCompat.getColor(this, R.color.aster_bg))
         webView.isVerticalScrollBarEnabled = false
@@ -209,6 +249,7 @@ class MainActivity : Activity() {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 if (url == null || url == "about:blank") return
+                pageLoaded = false
                 progressBar.visibility = View.VISIBLE
                 errorView.visibility = View.GONE
                 pageFailed = false
@@ -221,6 +262,7 @@ class MainActivity : Activity() {
                 ui.removeCallbacks(timeoutRunnable)
                 progressBar.visibility = View.GONE
                 if (pageFailed) return
+                pageLoaded = true
 
                 val parsed = AddressParser.parse(url)
                 if (parsed is AddressResult.Success) {
@@ -233,6 +275,7 @@ class MainActivity : Activity() {
                     connectStatus.text = getString(R.string.status_connected, endpoint.display())
                 }
                 startThemePolling()
+                requestSharedFeedPull()
             }
 
             override fun onReceivedError(
@@ -419,6 +462,7 @@ class MainActivity : Activity() {
         current = endpoint
         prefs.saveEndpoint(endpoint.copy(pair = null))
         pageFailed = false
+        pageLoaded = false
         lastThemeKey = ""
         errorView.visibility = View.GONE
         connectView.visibility = View.GONE
@@ -461,7 +505,10 @@ class MainActivity : Activity() {
         )
         try {
             // 保留已加载的页面与 SSE 连接；真正重新连接时再由 connect() 加载。
-            webView.stopLoading()
+            // 传输中绝不能 stopLoading，否则会打断正在跑的上传 XHR。
+            if (!transferActive && !TransferService.isRunning) {
+                webView.stopLoading()
+            }
         } catch (_: Exception) {
             // ignore
         }
@@ -475,11 +522,13 @@ class MainActivity : Activity() {
         } else {
             connectStatus.visibility = View.GONE
         }
+        refreshShareBannerAsync()
     }
 
     private fun showError(title: String, detail: String, address: String?) {
         ui.removeCallbacks(timeoutRunnable)
         ui.removeCallbacks(themeRunnable)
+        pageLoaded = false
         errorTitle.text = title
         errorDetail.text = detail
         if (address.isNullOrBlank()) {
@@ -682,22 +731,6 @@ class MainActivity : Activity() {
     }
 
     // ------------------------------------------------------------------ 扫码
-
-    /**
-     * 启动后自动进扫码页；取消或拒绝相机权限后留在连接页。
-     * onNewIntent（从桌面图标再次打开）也会重置为扫码优先。
-     */
-    private fun autoScanIfPossible() {
-        if (autoScanTriggered) return
-        autoScanTriggered = true
-        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) return
-        root.postDelayed({
-            if (isFinishing || isDestroyed) return@postDelayed
-            if (webLayer.visibility == View.VISIBLE) return@postDelayed
-            if (connectView.visibility != View.VISIBLE) return@postDelayed
-            requestScan()
-        }, AUTO_SCAN_DELAY_MS)
-    }
 
     private fun requestScan() {
         if (scanRequestInFlight) return
@@ -1157,15 +1190,24 @@ class MainActivity : Activity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        if (intent != null &&
-            intent.action == Intent.ACTION_MAIN &&
-            intent.hasCategory(Intent.CATEGORY_LAUNCHER)
+        if (intent == null) return
+        val action = intent.action
+        if (action == Intent.ACTION_SEND ||
+            action == Intent.ACTION_SEND_MULTIPLE ||
+            action == Intent.ACTION_VIEW
         ) {
             setIntent(intent)
+            handleShareIntent(intent)
+            return
+        }
+        if (action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
+            setIntent(intent)
             scanRequestInFlight = false
-            autoScanTriggered = false
-            showConnectScreen()
-            autoScanIfPossible()
+            // 已经连接并停留在网页时，从桌面图标回来只是把 App 提到前台；
+            // 不能重置到连接页，否则会 stopLoading 并打断正在进行的后台上传。
+            if (webLayer.visibility != View.VISIBLE || errorView.visibility == View.VISIBLE) {
+                showConnectScreen()
+            }
         }
     }
 
@@ -1179,7 +1221,10 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         ui.removeCallbacks(themeRunnable)
-        webView.onPause()
+        // 有正在进行的传输时不能 pause WebView，否则网页的上传 XHR 可能被挂起。
+        if (!transferActive && !TransferService.isRunning) {
+            webView.onPause()
+        }
         super.onPause()
     }
 
@@ -1217,6 +1262,20 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         ui.removeCallbacksAndMessages(null)
+        TransferBus.unregister()
+        try {
+            shareServer.stop()
+        } catch (_: Exception) {
+            // ignore
+        }
+        shareExecutor.shutdown()
+        if (transferActive || TransferService.isRunning) {
+            // WebView 马上销毁，上传无法继续；同时停掉服务，避免通知常驻。
+            TransferService.cancelNow(this)
+        }
+        transferActive = false
+        updateDialog?.dismiss()
+        updateDialog = null
         pendingDownloads.clear()
         pendingFileCallback?.onReceiveValue(null)
         pendingFileCallback = null
@@ -1226,6 +1285,7 @@ class MainActivity : Activity() {
             clearSslDialog()
         }
         try {
+            webView.removeJavascriptInterface("AsterShell")
             webView.stopLoading()
             (webView.parent as? android.view.ViewGroup)?.removeView(webView)
             webView.destroy()
@@ -1233,6 +1293,355 @@ class MainActivity : Activity() {
             // ignore
         }
         super.onDestroy()
+    }
+
+    // ------------------------------------------------------------------ 系统共享
+
+    /**
+     * 处理 ACTION_SEND / ACTION_SEND_MULTIPLE / ACTION_VIEW。
+     * 文件在后台复制进应用私有目录，文本直接进暂存区；复制完成后刷新连接页横幅，
+     * 已连接时立即通知网页拉取。
+     */
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action ?: return
+        val uris = LinkedHashSet<Uri>()
+        val texts = ArrayList<String>()
+        when (action) {
+            Intent.ACTION_SEND -> {
+                IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                    ?.let { uris.add(it) }
+                collectClipData(intent.clipData, uris, texts)
+                intent.getStringExtra(Intent.EXTRA_TEXT)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { texts.add(it) }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                IntentCompat.getParcelableArrayListExtra(
+                    intent,
+                    Intent.EXTRA_STREAM,
+                    Uri::class.java,
+                )?.forEach { uris.add(it) }
+                collectClipData(intent.clipData, uris, texts)
+                intent.getStringExtra(Intent.EXTRA_TEXT)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { texts.add(it) }
+            }
+            Intent.ACTION_VIEW -> intent.data?.let { uris.add(it) }
+            else -> return
+        }
+        if (uris.isEmpty() && texts.isEmpty()) return
+
+        val fallbackMime = intent.type
+        val uriList = uris.toList()
+        shareExecutor.execute {
+            var addedFiles = 0
+            var addedTexts = 0
+            try {
+                addedFiles = sharedInbox.ingestUris(uriList, fallbackMime)
+            } catch (error: Exception) {
+                Log.w(TAG, "ingest shared files failed", error)
+            }
+            try {
+                addedTexts = sharedInbox.ingestTexts(texts)
+            } catch (error: Exception) {
+                Log.w(TAG, "ingest shared texts failed", error)
+            }
+            val pendingFiles = runCatching { sharedInbox.pendingFiles() }.getOrDefault(0)
+            val pendingTexts = runCatching { sharedInbox.pendingTexts() }.getOrDefault(0)
+            ui.post {
+                if (isFinishing || isDestroyed) return@post
+                updateShareBanner(pendingFiles, pendingTexts)
+                if (addedFiles <= 0 && addedTexts <= 0) {
+                    toast(R.string.share_receive_failed)
+                } else {
+                    requestSharedFeedPull()
+                }
+            }
+        }
+    }
+
+    private fun collectClipData(
+        clip: ClipData?,
+        uris: MutableSet<Uri>,
+        texts: MutableList<String>,
+    ) {
+        if (clip == null) return
+        for (index in 0 until clip.itemCount) {
+            val item = clip.getItemAt(index) ?: continue
+            val uri = item.uri
+            if (uri != null) {
+                uris.add(uri)
+            } else {
+                item.text?.toString()?.takeIf { it.isNotBlank() }?.let { texts.add(it) }
+            }
+        }
+    }
+
+    private fun refreshShareBannerAsync() {
+        shareExecutor.execute {
+            val files = runCatching { sharedInbox.pendingFiles() }.getOrDefault(0)
+            val texts = runCatching { sharedInbox.pendingTexts() }.getOrDefault(0)
+            ui.post {
+                if (!isFinishing && !isDestroyed) updateShareBanner(files, texts)
+            }
+        }
+    }
+
+    private fun updateShareBanner(files: Int, texts: Int) {
+        when {
+            files > 0 -> {
+                shareBanner.text = getString(R.string.share_banner_files, files)
+                shareBanner.visibility = View.VISIBLE
+            }
+            texts > 0 -> {
+                shareBanner.text = getString(R.string.share_banner_texts, texts)
+                shareBanner.visibility = View.VISIBLE
+            }
+            else -> {
+                shareBanner.visibility = View.GONE
+            }
+        }
+    }
+
+    /** 页面已加载且处于连接页时才拉取；否则等 onPageFinished 再拉。 */
+    private fun requestSharedFeedPull() {
+        if (isFinishing || isDestroyed) return
+        if (!pageLoaded || pageFailed) return
+        if (webLayer.visibility != View.VISIBLE || errorView.visibility == View.VISIBLE) return
+        try {
+            webView.evaluateJavascript(SHARED_FEED_PULL_JS, null)
+        } catch (error: Exception) {
+            Log.w(TAG, "shared feed pull failed", error)
+        }
+    }
+
+    internal fun takeSharedFilesJson(): String {
+        return try {
+            val baseUrl = shareServer.baseUrl()
+            if (baseUrl == null) {
+                ui.post { toast(R.string.share_server_failed) }
+                EMPTY_SHARED_JSON
+            } else {
+                sharedInbox.snapshotJson(baseUrl)
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "take shared files failed", error)
+            ui.post { toast(R.string.share_receive_failed) }
+            EMPTY_SHARED_JSON
+        }
+    }
+
+    internal fun ackSharedFiles(idsJson: String?) {
+        val ids = parseAckIds(idsJson)
+        shareExecutor.execute {
+            try {
+                sharedInbox.ack(ids)
+            } catch (error: Exception) {
+                Log.w(TAG, "ack shared files failed", error)
+            }
+            val files = runCatching { sharedInbox.pendingFiles() }.getOrDefault(0)
+            val texts = runCatching { sharedInbox.pendingTexts() }.getOrDefault(0)
+            ui.post {
+                if (!isFinishing && !isDestroyed) updateShareBanner(files, texts)
+            }
+        }
+    }
+
+    private fun parseAckIds(raw: String?): Set<String> {
+        if (raw.isNullOrBlank()) return emptySet()
+        return try {
+            val text = raw.trim()
+            val array = if (text.startsWith("{")) {
+                JSONObject(text).optJSONArray("ids")
+            } else {
+                JSONArray(text)
+            }
+            val ids = HashSet<String>()
+            if (array != null) {
+                for (index in 0 until array.length()) {
+                    val id = array.optString(index).trim().lowercase(Locale.ROOT)
+                    if (ACK_ID_PATTERN.matches(id)) ids.add(id)
+                }
+            }
+            ids
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
+    // ------------------------------------------------------------------ JS 桥设备/版本
+
+    internal fun currentDeviceName(): String = try {
+        DeviceName.current(this, prefs)
+    } catch (_: Exception) {
+        "手机"
+    }
+
+    internal fun saveDeviceName(name: String?): String = try {
+        DeviceName.saveCustom(this, prefs, name)
+    } catch (_: Exception) {
+        currentDeviceName()
+    }
+
+    @Suppress("DEPRECATION")
+    internal fun currentAppVersion(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: FALLBACK_VERSION
+    } catch (_: Exception) {
+        FALLBACK_VERSION
+    }
+
+    // ------------------------------------------------------------------ 后台传输
+
+    internal fun onBridgeStartTransfer(title: String?, total: Long) {
+        if (isFinishing || isDestroyed) return
+        transferActive = true
+        lastTransferNotifyAt = 0L
+        requestNotificationPermission()
+        val started = TransferService.start(
+            this,
+            title?.trim().orEmpty(),
+            total.coerceAtLeast(0L),
+        )
+        if (!started) {
+            transferActive = false
+            toast(R.string.transfer_start_failed)
+        }
+    }
+
+    internal fun onBridgeUpdateTransfer(done: Long, total: Long, speed: Long, name: String?) {
+        if (isFinishing || isDestroyed) return
+        val totalBytes = total.coerceAtLeast(0L)
+        val doneBytes = done.coerceAtLeast(0L)
+        val now = SystemClock.elapsedRealtime()
+        val running = totalBytes <= 0L || doneBytes < totalBytes
+        if (running && lastTransferNotifyAt > 0L &&
+            now - lastTransferNotifyAt < TRANSFER_NOTIFY_INTERVAL_MS
+        ) {
+            return
+        }
+        lastTransferNotifyAt = now
+        if (!transferActive && !TransferService.isRunning) {
+            // 网页偶尔先发 update 再发 start；按未知总量兜底。
+            transferActive = true
+            lastTransferNotifyAt = 0L
+        }
+        TransferService.update(
+            this,
+            done = doneBytes,
+            total = totalBytes,
+            speed = speed.coerceAtLeast(0L),
+            name = name,
+        )
+    }
+
+    internal fun onBridgeFinishTransfer(success: Boolean, message: String?) {
+        val wasActive = transferActive || TransferService.isRunning
+        transferActive = false
+        ui.removeCallbacks(transferCancelFallback)
+        if (!wasActive) return
+        val detail = message?.trim()?.take(160).orEmpty()
+        TransferService.finish(this, success, detail.ifEmpty { null })
+        if (!success) {
+            toastMessage(detail.ifEmpty { getString(R.string.transfer_failed_toast) })
+        }
+    }
+
+    private fun onTransferCancelRequested() {
+        if (isFinishing || isDestroyed) return
+        if (!transferActive && !TransferService.isRunning) return
+        try {
+            webView.evaluateJavascript(TRANSFER_CANCEL_JS) { value ->
+                val handled = value?.trim()?.removeSurrounding("\"") == "1"
+                if (!handled && (transferActive || TransferService.isRunning)) {
+                    onBridgeFinishTransfer(false, getString(R.string.transfer_cancelled))
+                }
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "transfer cancel failed", error)
+            onBridgeFinishTransfer(false, getString(R.string.transfer_cancelled))
+        }
+        ui.removeCallbacks(transferCancelFallback)
+        ui.postDelayed(transferCancelFallback, TRANSFER_CANCEL_TIMEOUT_MS)
+    }
+
+    internal fun onBridgeOpenUrl(url: String?) {
+        val target = url?.trim().orEmpty()
+        if (target.isEmpty()) {
+            toast(R.string.external_link_failed)
+            return
+        }
+        val uri = try {
+            Uri.parse(target)
+        } catch (_: Exception) {
+            null
+        }
+        val scheme = uri?.scheme?.lowercase(Locale.ROOT)
+        if (uri == null || (scheme != "http" && scheme != "https")) {
+            toast(R.string.external_link_failed)
+            return
+        }
+        openExternal(uri)
+    }
+
+    // ------------------------------------------------------------------ 检查更新
+
+    internal fun onBridgeCheckUpdate() {
+        checkForUpdates(manual = true)
+    }
+
+    private fun checkForUpdates(manual: Boolean) {
+        if (isFinishing || isDestroyed) return
+        if (updateCheckInFlight) {
+            if (manual) toast(R.string.update_checking)
+            return
+        }
+        updateCheckInFlight = true
+        UpdateChecker.check(currentAppVersion()) { result ->
+            updateCheckInFlight = false
+            if (isFinishing || isDestroyed) return@check
+            when (result) {
+                is UpdateCheckResult.Available -> showUpdateDialog(result.info)
+                is UpdateCheckResult.UpToDate -> if (manual) toast(R.string.update_up_to_date)
+                is UpdateCheckResult.Failed -> if (manual) toast(R.string.update_check_failed)
+            }
+        }
+    }
+
+    private fun showUpdateDialog(info: UpdateInfo) {
+        if (isFinishing || isDestroyed) return
+        updateDialog?.dismiss()
+        val notes = info.notes.trim().take(MAX_UPDATE_NOTES)
+        val message = if (notes.isEmpty()) {
+            getString(R.string.update_message_no_notes, info.version)
+        } else {
+            getString(R.string.update_message, info.version, notes)
+        }
+        // 用户选择的是「提示 + 打开下载页」，所以优先官网/GitHub release 页；
+        // 只在页面地址缺失时才退回 apk 直链。
+        val downloadUrl = info.pageUrl.ifBlank { info.downloadUrl }
+            .ifBlank { UpdateChecker.DOWNLOAD_PAGE }
+        updateDialog = AlertDialog.Builder(this)
+            .setTitle(R.string.update_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.update_download) { _, _ -> openUpdatePage(downloadUrl) }
+            .setNegativeButton(R.string.update_later, null)
+            .setOnDismissListener { updateDialog = null }
+            .show()
+    }
+
+    private fun openUpdatePage(url: String) {
+        val uri = try {
+            Uri.parse(url)
+        } catch (_: Exception) {
+            null
+        }
+        val scheme = uri?.scheme?.lowercase(Locale.ROOT)
+        if (uri == null || (scheme != "http" && scheme != "https")) {
+            openExternal(Uri.parse(UpdateChecker.DOWNLOAD_PAGE))
+            return
+        }
+        openExternal(uri)
     }
 
     // ------------------------------------------------------------------ 工具
@@ -1268,7 +1677,6 @@ class MainActivity : Activity() {
         private const val TAG = "AsterMain"
         private const val LOAD_TIMEOUT_MS = 15_000L
         private const val THEME_POLL_MS = 1_500L
-        private const val AUTO_SCAN_DELAY_MS = 180L
         private const val POPUP_TIMEOUT_MS = 3_000L
         private const val MAX_FOLDER_FILES = 2_000
         private const val MAX_FOLDER_DEPTH = 24
@@ -1278,6 +1686,12 @@ class MainActivity : Activity() {
         private const val REQ_STORAGE = 2001
         private const val REQ_CAMERA = 2002
         private const val REQ_NOTIFICATIONS = 2003
+        private const val FALLBACK_VERSION = "3.0.0"
+        private const val MAX_UPDATE_NOTES = 1_000
+        private const val TRANSFER_NOTIFY_INTERVAL_MS = 400L
+        private const val TRANSFER_CANCEL_TIMEOUT_MS = 5_000L
+        private const val EMPTY_SHARED_JSON = "{\"files\":[],\"texts\":[]}"
+        private val ACK_ID_PATTERN = Regex("^[a-f0-9]{16}$")
 
         private val THEME_PROBE_JS =
             "(function(){try{var h=document.documentElement;" +
@@ -1289,6 +1703,14 @@ class MainActivity : Activity() {
             "(function(){try{if(document.body&&document.body.classList.contains('sheet-open')){" +
                 "document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));" +
                 "return '1';}return '0';}catch(e){return '0';}})()"
+
+        private val SHARED_FEED_PULL_JS =
+            "(function(){try{if(window.AsterSharedFeed&&window.AsterSharedFeed.pull){" +
+                "window.AsterSharedFeed.pull();}}catch(e){}})()"
+
+        private val TRANSFER_CANCEL_JS =
+            "(function(){try{if(window.AsterTransfer&&window.AsterTransfer.cancel){" +
+                "window.AsterTransfer.cancel();return '1';}return '0';}catch(e){return '0';}})()"
 
         private val RGBA_PATTERN =
             Regex("rgba?\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)(?:\\s*,\\s*([0-9.]+))?\\s*\\)")

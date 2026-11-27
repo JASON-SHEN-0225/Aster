@@ -173,6 +173,7 @@ class DownloadService : Service() {
         var pendingUri: Uri? = null
         var finalName = job.filename
         var success = false
+        val startedAt = SystemClock.elapsedRealtime()
         try {
             val connection = URL(job.url).openConnection() as HttpURLConnection
             activeConnection = connection
@@ -241,7 +242,7 @@ class DownloadService : Service() {
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastUpdate >= PROGRESS_INTERVAL_MS) {
                         lastUpdate = now
-                        updateProgress(finalName, copied, total)
+                        updateProgress(finalName, copied, total, startedAt)
                     }
                 }
                 stream.flush()
@@ -308,9 +309,11 @@ class DownloadService : Service() {
         }
     }
 
-    private fun updateProgress(name: String, copied: Long, total: Long) {
+    private fun updateProgress(name: String, copied: Long, total: Long, startedAt: Long) {
         try {
-            val notification = buildProgressNotification(name, copied, total)
+            val elapsedMs = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(1L)
+            val speed = (copied * 1000L / elapsedMs).coerceAtLeast(0L)
+            val notification = buildProgressNotification(name, copied, total, speed)
             lastNotification = notification
             notify(notification)
         } catch (_: Exception) {
@@ -318,7 +321,12 @@ class DownloadService : Service() {
         }
     }
 
-    private fun buildProgressNotification(name: String, copied: Long, total: Long): Notification {
+    private fun buildProgressNotification(
+        name: String,
+        copied: Long,
+        total: Long,
+        speed: Long = 0L,
+    ): Notification {
         val builder = baseBuilder().setOngoing(true)
         if (total > 0) {
             val max = 1000
@@ -327,11 +335,30 @@ class DownloadService : Service() {
                 .coerceIn(0, max)
             builder.setProgress(max, progress, false)
             builder.setContentText(
-                getString(R.string.download_notification_progress, name, progress * 100 / max)
+                if (speed > 0L) {
+                    getString(
+                        R.string.download_notification_progress_speed,
+                        name,
+                        progress * 100 / max,
+                        ByteFormat.speed(speed),
+                    )
+                } else {
+                    getString(R.string.download_notification_progress, name, progress * 100 / max)
+                }
             )
         } else {
             builder.setProgress(0, 0, true)
-            builder.setContentText(getString(R.string.download_notification_progress_unknown, name))
+            builder.setContentText(
+                if (speed > 0L) {
+                    getString(
+                        R.string.download_notification_progress_unknown_speed,
+                        name,
+                        ByteFormat.speed(speed),
+                    )
+                } else {
+                    getString(R.string.download_notification_progress_unknown, name)
+                }
+            )
         }
         return builder.build()
     }
@@ -405,7 +432,7 @@ class DownloadService : Service() {
         private const val PROGRESS_INTERVAL_MS = 400L
         private const val STOP_GRACE_MS = 300L
         private val DEFAULT_UA: String =
-            System.getProperty("http.agent") ?: "Aster/2.0.0 (Android)"
+            System.getProperty("http.agent") ?: "Aster/3.0.0 (Android)"
 
         const val EXTRA_URL = "url"
         const val EXTRA_FILENAME = "filename"

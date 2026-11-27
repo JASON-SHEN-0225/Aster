@@ -1,4 +1,4 @@
-# Aster 协议 v1
+﻿# Aster 协议 v1
 
 Aster 的协议是自研的，不追求与 LocalSend 兼容。核心思想很简单：
 
@@ -20,7 +20,7 @@ Aster 的协议是自研的，不追求与 LocalSend 兼容。核心思想很简
   "id": "32位hex",
   "alias": "客厅电脑",
   "device_type": "desktop",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "protocol": 1,
   "platform": "Windows 11",
   "fingerprint": "sha256(device_id)[:16]",
@@ -64,7 +64,7 @@ Aster 的协议是自研的，不追求与 LocalSend 兼容。核心思想很简
 {
   "app": "aster",
   "protocol": 1,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "announce",
   "device": { "...设备信息..." }
 }

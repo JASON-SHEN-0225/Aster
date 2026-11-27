@@ -97,9 +97,13 @@ class AsterE2E(unittest.TestCase):
         self.client.complete_file(resp["session_id"], payload["id"], token, sha)
         return resp
 
-    def pair_web(self, name: str = "测试手机") -> dict:
+    def pair_web(self, name: str = "测试手机", client: str = "web") -> dict:
         console = self.node.pair_web(
-            self.node.config.web_pair_code, name, "Android Chrome", "127.0.0.1"
+            self.node.config.web_pair_code,
+            name,
+            "Android Chrome",
+            "127.0.0.1",
+            client,
         )
         return console
 
@@ -372,6 +376,156 @@ class AsterE2E(unittest.TestCase):
             self.node.serve_offer_download(
                 type("H", (), {"connection": None}), ws, oid, ofid
             )
+
+    def test_web_device_client_and_rename(self) -> None:
+        pair = self.pair_web("Pixel 8", client="apk")
+        token = pair["token"]
+        self.assertEqual(pair["web"]["client"], "apk")
+        sessions = self.node.list_web_sessions()
+        self.assertEqual(sessions[0]["client"], "apk")
+        status, body = self.web_req(
+            "/api/v1/web/name", {"name": "我的 Pixel"}, token=token
+        )
+        self.assertEqual(status, 200)
+        renamed = json.loads(body)
+        self.assertEqual(renamed["web"]["name"], "我的 Pixel")
+        state = json.loads(self.web_req("/api/v1/web/state", token=token)[1])
+        self.assertEqual(state["web"]["name"], "我的 Pixel")
+        self.assertEqual(state["web"]["client"], "apk")
+
+    def test_web_upload_cancel_and_cancel_all(self) -> None:
+        pair = self.pair_web("取消上传手机", client="apk")
+        token = pair["token"]
+        payload = b"x" * (512 * 1024)
+        src = self.make_file("cancel-upload.bin", payload)
+        sessions: list[dict] = []
+        for _ in range(2):
+            fid = uuid.uuid4().hex
+            status, body = self.web_req(
+                "/api/v1/web/request",
+                {
+                    "files": [
+                        {
+                            "id": fid,
+                            "name": src.name,
+                            "rel_path": src.name,
+                            "size": src.stat().st_size,
+                        }
+                    ]
+                },
+                token=token,
+            )
+            self.assertEqual(status, 200)
+            sessions.append({"fid": fid, "data": json.loads(body)})
+
+        first = sessions[0]
+        q = urllib.parse.urlencode(
+            {
+                "session_id": first["data"]["session_id"],
+                "file_id": first["fid"],
+                "token": first["data"]["tokens"][first["fid"]],
+                "offset": 0,
+            }
+        )
+        half = payload[: len(payload) // 2]
+        status, body = self.web_req(f"/api/v1/transfer/upload?{q}", raw=half, token=token)
+        self.assertEqual(status, 200)
+        transfer_id = first["data"]["session_id"]
+        status, body = self.web_req(
+            f"/api/v1/web/transfers/{transfer_id}/cancel", {}, token=token
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            json.loads(body)["transfer"]["status"], "cancelled"
+        )
+        second_q = urllib.parse.urlencode(
+            {
+                "session_id": first["data"]["session_id"],
+                "file_id": first["fid"],
+                "token": first["data"]["tokens"][first["fid"]],
+                "offset": len(half),
+            }
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.web_req(f"/api/v1/transfer/upload?{second_q}", raw=payload[len(half):], token=token)
+        self.assertEqual(ctx.exception.code, 410)
+        self.assertFalse((self.node.store.tmp_dir / transfer_id).exists())
+
+        # 取消全部：另一个未开始的上传 + 一个已接受的 offer
+        status, body = self.web_req(
+            "/api/v1/web/transfers/cancel-all", {}, token=token
+        )
+        self.assertEqual(status, 200)
+        second_id = sessions[1]["data"]["session_id"]
+        self.assertEqual(self.node.transfers[second_id]["status"], "cancelled")
+
+        offer_src = self.make_file("cancel-all-offer.bin", b"y" * 4096)
+        out = self.node.send_to_web(str(pair["web_id"]), [str(offer_src)])
+        oid = out["offer"]["id"]
+        self.web_req(f"/api/v1/web/offers/{oid}/respond", {"accept": True}, token=token)
+        status, body = self.web_req(
+            "/api/v1/web/transfers/cancel-all", {}, token=token
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.node.transfers[out["transfer"]["id"]]["status"], "cancelled")
+        self.assertEqual(self.node.offers[oid].status, "cancelled")
+
+    def test_cancel_transfer_event_registry(self) -> None:
+        transfer = self.node._new_transfer(
+            direction="out",
+            via="peer",
+            peer=sender_device(),
+            files=[],
+            text="取消注册表",
+            status="active",
+        )
+        event = threading.Event()
+        self.node._cancel_events[transfer["id"]] = event
+        result = self.node.cancel_transfer(transfer["id"])
+        self.assertTrue(event.is_set())
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(self.node.cancel_all_transfers(), [])
+
+    def test_update_manifest_and_compare(self) -> None:
+        from aster import update
+
+        old_fetch = update._fetch_json
+        old_cache = dict(update._cache)
+        update._cache.update(at=0.0, data=None, source="none", error="")
+
+        def fake_fetch(url: str):
+            if url == update.UPDATE_URL:
+                return {
+                    "version": "3.0.1",
+                    "released": "2026-12-01",
+                    "notes": "测试更新",
+                    "download_page": "https://example.com/download",
+                    "desktop": {
+                        "version": "3.0.1",
+                        "url": "https://example.com/Aster-Setup-3.0.1.exe",
+                    },
+                    "android": {
+                        "version": "3.0.1",
+                        "versionCode": 30001,
+                        "url": "https://example.com/Aster-3.0.1.apk",
+                    },
+                }
+            return None
+
+        update._fetch_json = fake_fetch
+        try:
+            self.assertTrue(update.is_newer("3.0.1", "3.0.0"))
+            self.assertFalse(update.is_newer("3.0.0", "3.0.0"))
+            self.assertTrue(update.is_newer("v3.0.1", "3.0.0"))
+            result = update.check_update(current="3.0.0", force=True)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["source"], "website")
+            self.assertEqual(result["latest"]["version"], "3.0.1")
+            self.assertTrue(result["update_available"]["desktop"])
+            self.assertTrue(result["update_available"]["android"])
+        finally:
+            update._fetch_json = old_fetch
+            update._cache.update(old_cache)
 
     def test_discovery_announce(self) -> None:
         self.node.discovery = None

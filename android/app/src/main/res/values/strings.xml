@@ -56,4 +56,34 @@
     <string name="download_notification_failed">%1$s 保存失败</string>
     <string name="download_notification_progress">%1$s  %2$d%%</string>
     <string name="download_notification_progress_unknown">%1$s</string>
+    <string name="download_notification_progress_speed">%1$s  %2$d%%  %3$s</string>
+    <string name="download_notification_progress_unknown_speed">%1$s  %2$s</string>
+
+    <string name="share_banner_files">已收到 %1$d 个共享文件，连接后自动加入待发送列表</string>
+    <string name="share_banner_texts">已收到 %1$d 条共享内容，连接后自动加入待发送列表</string>
+    <string name="share_receive_failed">接收共享内容失败</string>
+    <string name="share_server_failed">共享暂存服务启动失败</string>
+
+    <string name="transfer_channel_name">文件传输</string>
+    <string name="transfer_channel_description">上传文件到电脑时的进度通知</string>
+    <string name="transfer_notification_title">Aster 传输</string>
+    <string name="transfer_notification_progress">%1$d%% · %2$s</string>
+    <string name="transfer_notification_percent">%1$d%%</string>
+    <string name="transfer_notification_unknown">正在传输…</string>
+    <string name="transfer_notification_unknown_speed">正在传输… · %1$s</string>
+    <string name="transfer_notification_done">传输完成</string>
+    <string name="transfer_notification_failed">传输失败</string>
+    <string name="transfer_notification_cancel">取消</string>
+    <string name="transfer_cancelled">传输已取消</string>
+    <string name="transfer_start_failed">无法启动后台传输</string>
+    <string name="transfer_failed_toast">传输失败</string>
+
+    <string name="update_title">发现新版本</string>
+    <string name="update_message">新版本 %1$s\n\n%2$s</string>
+    <string name="update_message_no_notes">新版本 %1$s 已发布，建议前往官网下载更新。</string>
+    <string name="update_download">去下载</string>
+    <string name="update_later">稍后</string>
+    <string name="update_up_to_date">已是最新版本</string>
+    <string name="update_check_failed">检查更新失败，请稍后再试</string>
+    <string name="update_checking">正在检查更新…</string>
 </resources>

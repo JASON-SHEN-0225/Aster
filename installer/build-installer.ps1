@@ -25,12 +25,12 @@ Write-Host "ISCC: $iscc" -ForegroundColor Cyan
 & $iscc (Join-Path $here "Aster.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)" }
 
-$setup = Join-Path $here "dist\Aster-Setup-2.0.0.exe"
+$setup = Join-Path $here "dist\Aster-Setup-3.0.0.exe"
 if (-not (Test-Path $setup)) { throw "Missing output: $setup" }
 $item = Get-Item $setup
 $hash = Get-FileHash $setup -Algorithm SHA256
 $sumFile = Join-Path $here "dist\SHA256SUMS.txt"
-Set-Content -LiteralPath $sumFile -Value ($hash.Hash + "  Aster-Setup-2.0.0.exe") -Encoding ASCII
+Set-Content -LiteralPath $sumFile -Value ($hash.Hash + "  Aster-Setup-3.0.0.exe") -Encoding ASCII
 
 Write-Host ""
 Write-Host "Installer built:" -ForegroundColor Green

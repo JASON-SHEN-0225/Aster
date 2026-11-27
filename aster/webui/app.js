@@ -20,6 +20,23 @@
   const MAX_FILE_RETRIES = 3;
   const INSTALL_SNOOZE_MS = 30 * 24 * 60 * 60 * 1000;
 
+  /* 与传输终止状态互补：这些状态的任务可以取消 */
+  const CANCELLABLE_TRANSFER_STATUSES = new Set([
+    "waiting",
+    "pending",
+    "active",
+    "uploading",
+    "verifying",
+  ]);
+  const UPLOAD_CANCEL_CLEANUP_MS = 3600;
+  /* 旧版本可能持久化下来的默认设备名，初始化时会被迁移掉 */
+  const LEGACY_DEFAULT_PHONE_NAMES = new Set([
+    "我的 Android 手机",
+    "我的手机",
+    "我的 iPhone",
+    "我的 iPad",
+  ]);
+
   const store = {
     get(key) {
       try {
@@ -49,6 +66,8 @@
     webId: store.get(STORAGE.webId) || "",
     phoneName: normalizePhoneName(store.get(STORAGE.phoneName) || ""),
     theme: store.get(STORAGE.theme) === "dark" ? "dark" : "light",
+    client: detectClientKind(),
+    webClient: "web",
     state: null,
     view: "boot",
     tab: "send",
@@ -97,6 +116,21 @@
     disconnectTimer: 0,
     hasEnteredApp: false,
     lastNetworkOnline: navigator.onLine,
+    nameBusy: false,
+    updateBusy: false,
+    updateResult: null,
+    cancelBusy: new Set(),
+    cancelAllBusy: false,
+    transferCancelled: new Set(),
+    autoDownloadTimers: new Map(),
+  };
+
+  /* 分享入口（APK 桥接）的消费状态：避免同一条分享被重复入队 */
+  const sharedFeed = {
+    busy: false,
+    pending: false,
+    seenIds: new Set(),
+    seenKeys: new Set(),
   };
 
   const ui = {};
@@ -177,6 +211,17 @@
       settingsClose: byId("settings-close"),
       settingsWebName: byId("settings-web-name"),
       settingsWebMeta: byId("settings-web-meta"),
+      settingsClientType: byId("settings-client-type"),
+      settingsNameInput: byId("settings-name-input"),
+      settingsNameSave: byId("settings-name-save"),
+      settingsAppVersion: byId("settings-app-version"),
+      settingsVersionLabel: byId("settings-version-label"),
+      settingsUpdateStatus: byId("settings-update-status"),
+      checkUpdate: byId("check-update"),
+      updateDownloadRow: byId("update-download-row"),
+      updateDownloadLabel: byId("update-download-label"),
+      updateDownload: byId("update-download"),
+      cancelAllTransfers: byId("cancel-all-transfers"),
       autoAcceptToggle: byId("auto-accept-toggle"),
       httpsToggle: byId("https-toggle"),
       settingsScheme: byId("settings-scheme"),
@@ -224,19 +269,85 @@
   /* ------------------------------------------------------------------------
      3. 通用工具
      ------------------------------------------------------------------------ */
-  function normalizePhoneName(value) {
-    const name = String(value || "")
+  function cleanName(value) {
+    return String(value === null || value === undefined ? "" : value)
       .replace(/[\u0000-\u001f\u007f]/g, "")
       .trim();
-    return name || defaultPhoneName();
+  }
+
+  function normalizePhoneName(value) {
+    return cleanName(value) || defaultPhoneName();
+  }
+
+  function isLegacyDefaultPhoneName(value) {
+    return LEGACY_DEFAULT_PHONE_NAMES.has(cleanName(value));
+  }
+
+  /* APK 内置壳：window.AsterShell 由 Android 端注入 */
+  function bridge() {
+    try {
+      return window.AsterShell && typeof window.AsterShell === "object" ? window.AsterShell : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function bridgeHas(name) {
+    const shell = bridge();
+    return !!(shell && typeof shell[name] === "function");
+  }
+
+  function bridgeCall(name, ...args) {
+    if (!bridgeHas(name)) return undefined;
+    try {
+      return window.AsterShell[name].apply(window.AsterShell, args);
+    } catch (error) {
+      console.warn(`[Aster] 桥接方法 ${name} 调用失败`, error);
+      return undefined;
+    }
+  }
+
+  /* 客户端类型：优先信任原生桥，其次 URL 上的 ?client=apk */
+  function detectClientKind() {
+    let kind = "";
+    const shell = bridge();
+    if (shell) {
+      try {
+        const value = typeof shell.clientType === "function" ? shell.clientType() : shell.clientType;
+        if (typeof value === "string") kind = value.trim().toLowerCase();
+      } catch (_) {
+        kind = "";
+      }
+    }
+    if (kind === "apk") return "apk";
+    let fromQuery = "";
+    try {
+      fromQuery = String(new URL(location.href).searchParams.get("client") || "")
+        .trim()
+        .toLowerCase();
+    } catch (_) {
+      fromQuery = "";
+    }
+    return fromQuery === "apk" ? "apk" : "web";
+  }
+
+  function normalizeClientKind(value) {
+    return String(value || "").trim().toLowerCase() === "apk" ? "apk" : "web";
+  }
+
+  function clientTypeLabel() {
+    return app.webClient === "apk" ? "APK 手机" : "网页端";
   }
 
   function defaultPhoneName() {
-    const ua = navigator.userAgent || "";
-    if (/iPhone/i.test(ua)) return "我的 iPhone";
-    if (/iPad/i.test(ua)) return "我的 iPad";
-    if (/Android/i.test(ua)) return "我的 Android 手机";
-    return "我的手机";
+    if (detectClientKind() === "apk") {
+      const bridgeName = cleanName(bridgeCall("deviceName"));
+      if (bridgeName) return bridgeName;
+      const saved = cleanName(store.get(STORAGE.phoneName));
+      if (saved && !isLegacyDefaultPhoneName(saved)) return saved;
+      return "Aster 手机";
+    }
+    return "网页端设备";
   }
 
   function normalizeCode(value) {
@@ -605,13 +716,24 @@
     }
   }
 
-  function saveSession(token, webId, phoneName) {
+  function saveSession(token, webId, phoneName, client) {
     app.token = String(token || "");
     app.webId = String(webId || "");
     app.phoneName = normalizePhoneName(phoneName || app.phoneName);
+    app.webClient = normalizeClientKind(client);
     store.set(STORAGE.token, app.token);
     store.set(STORAGE.webId, app.webId);
     store.set(STORAGE.phoneName, app.phoneName);
+  }
+
+  /* 服务端返回的 web.client 才是配对身份；旧版服务端没有该字段时按浏览器处理 */
+  function syncWebClient(state) {
+    const web = state && state.web ? state.web : null;
+    if (web && web.client !== undefined) {
+      app.webClient = normalizeClientKind(web.client);
+    } else {
+      app.webClient = "web";
+    }
   }
 
   function clearSession() {
@@ -620,6 +742,7 @@
     app.state = null;
     app.connected = false;
     app.hasEnteredApp = false;
+    app.webClient = "web";
     store.remove(STORAGE.token);
     store.remove(STORAGE.webId);
     stopRealtime();
@@ -627,6 +750,9 @@
     app.offerStatus.clear();
     app.knownOfferIds.clear();
     app.offersInitialized = false;
+    app.transferCancelled.clear();
+    app.cancelBusy.clear();
+    clearAutoDownloadTimers();
   }
 
   function setSendMode(mode) {
@@ -804,17 +930,20 @@
           code,
           name,
           ua: navigator.userAgent,
+          client: app.client,
         },
       });
       if (!data || !data.token) {
         throw new ClientError("电脑返回的配对信息不完整，请重试。", 0);
       }
-      saveSession(data.token, data.web_id, name);
+      saveSession(data.token, data.web_id, name, data.web && data.web.client);
       app.state = data.state || null;
+      if (app.state) syncWebClient(app.state);
       app.connected = true;
       app.offersInitialized = false;
       app.knownOfferIds.clear();
       app.offerStatus.clear();
+      app.transferCancelled.clear();
       cleanPairQuery();
       ui.pairCode.value = "";
       app.autoPairScheduled = false;
@@ -842,6 +971,8 @@
   }
 
   function enterApp(options = {}) {
+    app.client = detectClientKind();
+    if (app.state) syncWebClient(app.state);
     setView("app");
     updateConnection();
     resetSignatures();
@@ -853,6 +984,12 @@
     if (options.welcome) {
       const deviceName = app.state && app.state.device ? app.state.device.alias : "电脑";
       showToast(`已连接到 ${deviceName}`, "success", 2800);
+    }
+    /* APK 壳：进入应用后消费系统分享进来的文件 */
+    if (bridgeHas("takeSharedFiles")) {
+      window.setTimeout(() => {
+        if (app.view === "app") pullSharedFiles();
+      }, options.welcome ? 900 : 320);
     }
     window.setTimeout(() => {
       if (app.view === "app" && !app.connected) probeConnection({ quiet: true });
@@ -1191,6 +1328,7 @@
 
   function renderAll(force = false) {
     if (!app.state || app.view !== "app") return;
+    syncWebClient(app.state);
     safeRender("设备信息", () => renderDevice(force));
     safeRender("接收请求", () => renderOffers(force));
     safeRender("传输进度", () => renderTransfers(force));
@@ -1267,13 +1405,18 @@
   /* ------------------------------------------------------------------------
      10. 渲染 — 待接收 offer
      ------------------------------------------------------------------------ */
+  function isTerminalOfferStatus(status) {
+    return ["completed", "failed", "rejected", "cancelled", "expired"].includes(status);
+  }
+
   function effectiveOfferStatus(offer) {
     if (!offer) return "pending";
     const local = app.offerStatus.get(offer.id);
-    if (offer.status !== "pending") {
+    if (isTerminalOfferStatus(offer.status)) {
       if (local) app.offerStatus.delete(offer.id);
       return offer.status;
     }
+    /* 本地取消/受理状态先于服务端推送生效，避免取消后卡片还停在“下载中” */
     return local || offer.status || "pending";
   }
 
@@ -1283,7 +1426,10 @@
     const allOffers = Array.isArray(state.offers) ? state.offers : [];
     const present = new Set(allOffers.map((offer) => offer.id));
     app.offerStatus.forEach((_, id) => {
-      if (!present.has(id)) app.offerStatus.delete(id);
+      if (!present.has(id)) {
+        app.offerStatus.delete(id);
+        clearAutoDownloadTimers(id);
+      }
     });
 
     const visible = [];
@@ -1558,18 +1704,23 @@
       3000
     );
     setSRStatus(`已开始下载 ${urls.length} 个文件`);
+    clearAutoDownloadTimers(offer.id);
+    const timers = [];
     urls.forEach((entry, index) => {
-      window.setTimeout(() => {
-        const a = document.createElement("a");
-        a.href = entry.href;
-        a.download = entry.name;
-        a.rel = "noopener";
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }, 120 + index * 280);
+      timers.push(
+        window.setTimeout(() => {
+          const a = document.createElement("a");
+          a.href = entry.href;
+          a.download = entry.name;
+          a.rel = "noopener";
+          a.style.display = "none";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }, 120 + index * 280)
+      );
     });
+    app.autoDownloadTimers.set(offer.id, timers);
   }
 
   async function cancelOfferDownload(offer, button) {
@@ -1584,6 +1735,7 @@
         method: "POST",
         timeout: 8000,
       });
+      clearAutoDownloadTimers(offer.id);
       app.offerStatus.set(offer.id, "cancelled");
       showToast("已取消下载", "info", 2800);
       setSRStatus("已取消下载");
@@ -1594,6 +1746,8 @@
         button.disabled = false;
         button.textContent = "取消下载";
       }
+      app.offerStatus.delete(offer.id);
+      renderOffers(true);
       if (error.status !== 401) {
         showToast(friendlyError(error, "取消下载失败，请重试。"), "error", 3600);
       }
@@ -1649,8 +1803,7 @@
     return TERMINAL_STATUSES.has(status);
   }
 
-  function findUploadTransfer() {
-    const upload = app.upload;
+  function findUploadTransfer(upload = app.upload) {
     if (!upload || !Array.isArray(upload.fileIds) || upload.fileIds.length === 0) return null;
     if (!app.state || !Array.isArray(app.state.transfers)) return null;
     const ids = new Set(upload.fileIds);
@@ -1675,9 +1828,11 @@
         ? "completed"
         : upload.status === "failed"
           ? "failed"
-          : upload.status === "preparing"
-            ? "pending"
-            : "active";
+          : upload.status === "cancelled"
+            ? "cancelled"
+            : upload.status === "preparing"
+              ? "pending"
+              : "active";
     const files = upload.files.map((item) => ({
       id: item.id,
       name: item.name,
@@ -1712,13 +1867,24 @@
     if (!app.state) return;
     const state = app.state;
     const all = Array.isArray(state.transfers) ? state.transfers.filter((t) => t && t.kind === "files") : [];
+    const present = new Set(all.map((transfer) => transfer.id));
+    app.transferCancelled.forEach((id) => {
+      if (!present.has(id)) app.transferCancelled.delete(id);
+    });
+
     const upload = app.upload;
-    const matched = findUploadTransfer();
+    const matched = findUploadTransfer(upload);
     const matchedId = matched ? matched.id : "";
+    if (upload && matched && !upload.transferId) upload.transferId = matched.id;
+    /* 电脑端取消后，服务端任务会变成 cancelled：本地立即停止并标记为已取消 */
+    if (upload && matched && matched.status === "cancelled" && isLocalUploadCancellable(upload)) {
+      markUploadCancelled(upload, { notify: true, message: "电脑端已取消这次传输" });
+    }
+
     const active = [];
     const recent = [];
     all.forEach((transfer) => {
-      if (isTerminal(transfer.status)) {
+      if (isTerminal(effectiveTransferStatus(transfer))) {
         recent.push(transfer);
       } else {
         active.push(transfer);
@@ -1736,6 +1902,7 @@
     }
     if (display.length > 10) display = display.slice(0, 10);
 
+    const cancelAllVisible = hasCancellableWork();
     const signature = JSON.stringify({
       upload: upload
         ? [
@@ -1750,11 +1917,13 @@
             upload.files.length,
             upload.totalBytes,
             upload.startedAt,
+            upload.cancelRequested,
           ]
         : null,
+      cancelAllVisible,
       transfers: display.map((transfer) => [
         transfer.id,
-        transfer.status,
+        effectiveTransferStatus(transfer),
         transfer.direction,
         transfer.via,
         transfer.total_bytes,
@@ -1773,6 +1942,7 @@
       ui.transfersSummary.textContent =
         activeCount > 0 ? `${activeCount} 个进行中` : "";
     }
+    if (ui.cancelAllTransfers) ui.cancelAllTransfers.hidden = !cancelAllVisible;
     if (ui.transfersEmpty) ui.transfersEmpty.hidden = display.length > 0;
 
     if (!force && !setSignature("transfers", signature)) return;
@@ -1788,8 +1958,291 @@
   }
 
   function effectiveTransferStatus(transfer) {
-    if (transfer && transfer.__localUpload) return transfer.status;
-    return transfer ? transfer.status : "";
+    if (!transfer) return "";
+    if (transfer.__localUpload) return transfer.status;
+    if (isTerminal(transfer.status)) {
+      if (transfer.id) app.transferCancelled.delete(transfer.id);
+      return transfer.status;
+    }
+    if (transfer.id && app.transferCancelled.has(transfer.id)) return "cancelled";
+    return transfer.status;
+  }
+
+  /* ---- 任务取消 ---------------------------------------------------------- */
+  function isLocalUploadCancellable(upload = app.upload) {
+    return (
+      !!upload &&
+      !upload.cancelRequested &&
+      (upload.status === "preparing" || upload.status === "uploading")
+    );
+  }
+
+  function isCancellableRemoteTransfer(transfer) {
+    if (!transfer || !app.webId) return false;
+    if (!CANCELLABLE_TRANSFER_STATUSES.has(effectiveTransferStatus(transfer))) return false;
+    return !!(transfer.peer && transfer.peer.id === `web:${app.webId}`);
+  }
+
+  function isCancellableTransfer(transfer, local) {
+    if (local) return isLocalUploadCancellable(local);
+    if (transfer && transfer.__localUpload) return isLocalUploadCancellable(app.upload);
+    return isCancellableRemoteTransfer(transfer);
+  }
+
+  function downloadingOfferIds() {
+    const state = app.state;
+    if (!state || !Array.isArray(state.offers)) return [];
+    const ids = [];
+    state.offers.forEach((offer) => {
+      if (!offer || !offer.id) return;
+      const status = effectiveOfferStatus(offer);
+      if (status !== "accepted" && status !== "downloading") return;
+      const files = Array.isArray(offer.files) ? offer.files : [];
+      if (files.length && files.every((file) => file && file.status === "completed")) return;
+      ids.push(offer.id);
+    });
+    return ids;
+  }
+
+  function hasCancellableWork() {
+    if (isLocalUploadCancellable()) return true;
+    const all = app.state && Array.isArray(app.state.transfers) ? app.state.transfers : [];
+    if (all.some((transfer) => transfer && transfer.kind === "files" && isCancellableRemoteTransfer(transfer))) {
+      return true;
+    }
+    return downloadingOfferIds().length > 0;
+  }
+
+  function hasOtherCancellableWork(upload) {
+    if (downloadingOfferIds().length > 0) return true;
+    const matched = findUploadTransfer(upload);
+    const all = app.state && Array.isArray(app.state.transfers) ? app.state.transfers : [];
+    return all.some(
+      (transfer) =>
+        transfer &&
+        transfer.kind === "files" &&
+        (!matched || transfer.id !== matched.id) &&
+        isCancellableRemoteTransfer(transfer)
+    );
+  }
+
+  function clearAutoDownloadTimers(offerId) {
+    if (offerId !== undefined) {
+      const timers = app.autoDownloadTimers.get(offerId);
+      if (timers) {
+        timers.forEach((timer) => window.clearTimeout(timer));
+        app.autoDownloadTimers.delete(offerId);
+      }
+      return;
+    }
+    app.autoDownloadTimers.forEach((timers) => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    });
+    app.autoDownloadTimers.clear();
+  }
+
+  function currentUploadTransferId(upload = app.upload) {
+    if (!upload) return "";
+    if (upload.transferId) return upload.transferId;
+    const matched = findUploadTransfer(upload);
+    if (matched && matched.id) {
+      upload.transferId = matched.id;
+      return upload.transferId;
+    }
+    return "";
+  }
+
+  function uploadCancelledError() {
+    const error = new ClientError("上传已取消。", -2);
+    error.cancelled = true;
+    return error;
+  }
+
+  function isUploadCancelledError(error, upload) {
+    if (upload && upload.cancelRequested) return true;
+    return !!(error && (error.cancelled === true || error.status === -2));
+  }
+
+  /* 电脑端（或取消全部）取消后，服务端任务状态会变为 cancelled */
+  function uploadCancelledByServer(upload) {
+    if (!upload) return false;
+    const matched = findUploadTransfer(upload);
+    return !!matched && matched.status === "cancelled";
+  }
+
+  function scheduleUploadCleanup(upload, status, delay) {
+    if (!upload) return;
+    if (app.uploadClearTimer) {
+      window.clearTimeout(app.uploadClearTimer);
+      app.uploadClearTimer = 0;
+    }
+    app.uploadClearTimer = window.setTimeout(() => {
+      app.uploadClearTimer = 0;
+      if (app.upload === upload && upload.status === status) {
+        app.upload = null;
+        app.lastSampleAt = 0;
+        renderTransfers(true);
+      }
+      if (sharedFeed.pending) {
+        sharedFeed.pending = false;
+        window.setTimeout(pullSharedFiles, 500);
+      }
+    }, delay);
+  }
+
+  function markUploadCancelled(upload, options = {}) {
+    if (!upload) return;
+    const already = upload.status === "cancelled";
+    upload.cancelRequested = true;
+    upload.status = "cancelled";
+    upload.finishedAt = upload.finishedAt || Date.now();
+    upload.speed = 0;
+    upload.eta = null;
+    upload.currentLoaded = 0;
+    upload.error = "";
+    const xhr = upload.xhr;
+    upload.xhr = null;
+    if (xhr) {
+      try {
+        xhr.abort();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    if (app.upload === upload) {
+      renderTransfers(true);
+      setSRStatus("传输已取消");
+    }
+    finishBridgeTransfer(upload, false, "已取消");
+    if (already) return;
+    if (options.notify !== false) {
+      showToast(options.message || "已取消发送", "info", 2400);
+    }
+    scheduleUploadCleanup(upload, "cancelled", UPLOAD_CANCEL_CLEANUP_MS);
+  }
+
+  async function cancelLocalUpload(options = {}) {
+    const upload = app.upload;
+    if (!upload || upload.cancelRequested) return false;
+    if (!isLocalUploadCancellable(upload)) return false;
+
+    upload.cancelRequested = true;
+    const xhr = upload.xhr;
+    upload.xhr = null;
+    if (xhr) {
+      try {
+        xhr.abort();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    markUploadCancelled(upload, { notify: options.notify !== false });
+
+    if (options.server === false) return true;
+    const transferId = currentUploadTransferId(upload);
+    try {
+      if (transferId) {
+        await api(`/api/v1/web/transfers/${encodeURIComponent(transferId)}/cancel`, {
+          method: "POST",
+          timeout: 8000,
+        });
+      } else if (!hasOtherCancellableWork(upload)) {
+        /* 服务端还没生成任务行时，用取消全部兜底；旧版服务端 404 也在这里优雅忽略 */
+        await api("/api/v1/web/transfers/cancel-all", { method: "POST", timeout: 8000 });
+      }
+    } catch (error) {
+      /* 取消是“尽力而为”：本地 XHR 已经中止，服务端不支持时也不弹失败提示 */
+      if (error && error.status === 401) return true;
+    }
+    return true;
+  }
+
+  async function cancelTransferAction(transfer, local, button) {
+    const key = transfer && transfer.id ? transfer.id : "local-upload";
+    if (app.cancelBusy.has(key)) return;
+    app.cancelBusy.add(key);
+    if (button) {
+      button.disabled = true;
+      button.textContent = "取消中…";
+    }
+    try {
+      if (local || (transfer && transfer.__localUpload)) {
+        const handled = await cancelLocalUpload({ notify: true });
+        if (!handled) renderTransfers(true);
+      } else if (transfer && transfer.id) {
+        await api(`/api/v1/web/transfers/${encodeURIComponent(transfer.id)}/cancel`, {
+          method: "POST",
+          timeout: 8000,
+        });
+        app.transferCancelled.add(transfer.id);
+        showToast("已取消传输", "info", 2400);
+        setSRStatus("已取消传输");
+        renderTransfers(true);
+      }
+    } catch (error) {
+      if (error.status !== 401) {
+        const ended = error.status === 404;
+        const message = ended
+          ? "这次传输已经结束"
+          : [405, 501].includes(error.status)
+            ? "电脑端暂不支持取消这次传输"
+            : friendlyError(error, "取消失败，请稍后重试。");
+        showToast(message, ended ? "info" : "error", 3600);
+        if (button && button.isConnected) {
+          button.disabled = false;
+          button.textContent = "取消";
+        }
+      }
+    } finally {
+      app.cancelBusy.delete(key);
+    }
+  }
+
+  async function cancelAllTransfers() {
+    if (app.cancelAllBusy) return;
+    app.cancelAllBusy = true;
+    const button = ui.cancelAllTransfers;
+    if (button) {
+      button.disabled = true;
+      button.textContent = "取消中…";
+    }
+    const hadLocalUpload = isLocalUploadCancellable();
+    try {
+      if (hadLocalUpload) {
+        await cancelLocalUpload({ notify: false, server: false });
+      }
+      clearAutoDownloadTimers();
+      downloadingOfferIds().forEach((id) => app.offerStatus.set(id, "cancelled"));
+      const all = app.state && Array.isArray(app.state.transfers) ? app.state.transfers : [];
+      all.forEach((transfer) => {
+        if (transfer && transfer.kind === "files" && isCancellableRemoteTransfer(transfer)) {
+          app.transferCancelled.add(transfer.id);
+        }
+      });
+
+      let serverOK = false;
+      try {
+        await api("/api/v1/web/transfers/cancel-all", { method: "POST", timeout: 8000 });
+        serverOK = true;
+      } catch (error) {
+        if (error && error.status === 401) return;
+      }
+      renderTransfers(true);
+      renderOffers(true);
+      if (serverOK) {
+        showToast("已取消全部传输", "info", 2800);
+        setSRStatus("已取消全部传输");
+      } else {
+        showToast("已停止本地任务，电脑端暂未确认取消", "info", 3200);
+        setSRStatus("已停止本地任务");
+      }
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "取消全部";
+      }
+      app.cancelAllBusy = false;
+    }
   }
 
   function transferStatusMeta(status, transfer, local) {
@@ -1854,6 +2307,7 @@
       error = safeText(local.error);
       if (local.status === "completed") status = "completed";
       else if (local.status === "failed") status = "failed";
+      else if (local.status === "cancelled") status = "cancelled";
       else if (local.status === "preparing") status = "pending";
       else status = "active";
     }
@@ -1951,6 +2405,24 @@
       errorNode.hidden = !(status === "failed" && (error || true));
     }
 
+    const actions = card.querySelector(".transfer-actions");
+    if (actions) {
+      if (isCancellableTransfer(transfer, local)) {
+        const cancel = make("button", "btn btn-ghost btn-xs transfer-cancel");
+        cancel.type = "button";
+        cancel.setAttribute("aria-label", "取消这次传输");
+        cancel.appendChild(icon("close"));
+        cancel.appendChild(document.createTextNode("取消"));
+        cancel.addEventListener("click", () => {
+          cancelTransferAction(transfer, local, cancel);
+        });
+        actions.appendChild(cancel);
+        actions.hidden = false;
+      } else {
+        actions.hidden = true;
+      }
+    }
+
     return card;
   }
 
@@ -1962,13 +2434,67 @@
     }, 120);
   }
 
+  /* ---- APK 后台传输通知桥（仅本机上传，不涉及电脑→手机下载） ---------- */
+  function bridgeTransferEnabled() {
+    return app.client === "apk";
+  }
+
+  function bridgeTransferTitle(upload) {
+    const files = upload && Array.isArray(upload.files) ? upload.files : [];
+    if (!files.length) return "文件传输";
+    if (files.length === 1) return safeText(files[0].name, "文件");
+    return `${safeText(files[0].name, "文件")} 等 ${files.length} 个文件`;
+  }
+
+  function startBridgeTransfer(upload) {
+    if (!upload || upload.bridgeStarted || upload.bridgeFinished) return;
+    if (!bridgeTransferEnabled() || !bridgeHas("startTransfer")) return;
+    try {
+      window.AsterShell.startTransfer(bridgeTransferTitle(upload), Number(upload.totalBytes) || 0);
+      upload.bridgeStarted = true;
+    } catch (error) {
+      console.warn("[Aster] startTransfer 调用失败", error);
+    }
+  }
+
+  function updateBridgeTransfer(upload) {
+    if (!upload || !upload.bridgeStarted || upload.bridgeFinished) return;
+    if (!bridgeTransferEnabled() || !bridgeHas("updateTransfer")) return;
+    const total = Number(upload.totalBytes) || 0;
+    const rawDone = Number(upload.completedBytes || 0) + Number(upload.currentLoaded || 0);
+    const done = clamp(rawDone, 0, total || rawDone);
+    try {
+      window.AsterShell.updateTransfer(
+        done,
+        total,
+        Math.round(Number(upload.speed) || 0),
+        safeText(upload.currentName)
+      );
+    } catch (error) {
+      console.warn("[Aster] updateTransfer 调用失败", error);
+    }
+  }
+
+  function finishBridgeTransfer(upload, success, message) {
+    if (!upload || !upload.bridgeStarted || upload.bridgeFinished) return;
+    upload.bridgeFinished = true;
+    if (!bridgeTransferEnabled() || !bridgeHas("finishTransfer")) return;
+    try {
+      window.AsterShell.finishTransfer(!!success, safeText(message));
+    } catch (error) {
+      console.warn("[Aster] finishTransfer 调用失败", error);
+    }
+  }
+
   function noteUploadProgress(forceSample = false) {
     const upload = app.upload;
     if (!upload) return;
     const now = performance.now();
     if (!upload.samples) upload.samples = [];
     const loaded = Number(upload.completedBytes || 0) + Number(upload.currentLoaded || 0);
+    let sampled = false;
     if (forceSample || !app.lastSampleAt || now - app.lastSampleAt >= 120) {
+      sampled = true;
       app.lastSampleAt = now;
       upload.samples.push({ t: now, bytes: loaded });
       while (upload.samples.length > 2 && now - upload.samples[0].t > 4000) {
@@ -1988,6 +2514,8 @@
         }
       }
     }
+    /* 与现有采样/渲染节流同频：每 120ms 最多通知一次 APK 后台通知 */
+    if (sampled) updateBridgeTransfer(upload);
     scheduleUploadProgressRender();
   }
 
@@ -2101,41 +2629,48 @@
   /* ------------------------------------------------------------------------
      13. 发送文件 — 选择 / 面板 / 上传
      ------------------------------------------------------------------------ */
-  function canStartUpload() {
+  function canStartUpload(quiet = false) {
     if (!app.state || !app.token) {
-      showToast("还没有连接到电脑", "error");
+      if (!quiet) showToast("还没有连接到电脑", "error");
       return false;
     }
     if (app.upload && (app.upload.status === "preparing" || app.upload.status === "uploading")) {
-      showToast("正在发送文件，请等这次传输完成", "info");
+      if (!quiet) showToast("正在发送文件，请等这次传输完成", "info");
       return false;
     }
     return true;
+  }
+
+  /* 把文件追加到待发送选择集，返回实际新增数量（沿用原来的去重规则） */
+  function addSelectionFiles(entries) {
+    const existing = new Set(app.selection.map((item) => item.key));
+    let added = 0;
+    Array.from(entries || []).forEach((entry) => {
+      if (!entry || !entry.file || typeof entry.file.size !== "number") return;
+      const name = safeText(entry.name || entry.file.name, "未命名文件");
+      const relPath = safeText(entry.relPath || entry.file.webkitRelativePath || entry.file.name, name) || name;
+      const key = `${relPath}|${entry.file.size}|${entry.file.lastModified || 0}`;
+      if (existing.has(key)) return;
+      existing.add(key);
+      app.selection.push({
+        id: randomHex32(),
+        file: entry.file,
+        name,
+        relPath,
+        size: Number(entry.file.size) || 0,
+        key,
+        done: false,
+      });
+      added += 1;
+    });
+    return added;
   }
 
   function addFiles(fileList) {
     const incoming = Array.from(fileList || []).filter((file) => file && typeof file.size === "number");
     if (!incoming.length) return;
     if (!canStartUpload()) return;
-    const existing = new Set(app.selection.map((item) => item.key));
-    let added = 0;
-    incoming.forEach((file) => {
-      const name = safeText(file.name, "未命名文件");
-      const relPath = safeText(file.webkitRelativePath || file.name, name) || name;
-      const key = `${relPath}|${file.size}|${file.lastModified}`;
-      if (existing.has(key)) return;
-      existing.add(key);
-      app.selection.push({
-        id: randomHex32(),
-        file,
-        name,
-        relPath,
-        size: Number(file.size) || 0,
-        key,
-        done: false,
-      });
-      added += 1;
-    });
+    const added = addSelectionFiles(incoming.map((file) => ({ file })));
     if (!added) {
       showToast("这些文件已经在待发送列表里了", "info");
       return;
@@ -2200,7 +2735,7 @@
       app.uploadClearTimer = 0;
     }
     const totalBytes = items.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
-    app.upload = {
+    const upload = {
       status: "preparing",
       files: items.map((item) => ({
         id: item.id,
@@ -2221,10 +2756,16 @@
       error: "",
       sessionId: "",
       sessionToken: "",
+      transferId: "",
       startedAt: Date.now(),
       finishedAt: 0,
       samples: [],
+      xhr: null,
+      cancelRequested: false,
+      bridgeStarted: false,
+      bridgeFinished: false,
     };
+    app.upload = upload;
     app.lastSampleAt = 0;
     noteUploadProgress(true);
     renderTransfers(true);
@@ -2241,45 +2782,51 @@
         body: { files: payloadFiles, text: "" },
         timeout: 20000,
       });
+      if (app.upload !== upload || upload.cancelRequested) return;
       if (!request || !request.session_id) {
         throw new ClientError("电脑没有返回传输会话，请重试。", 0);
       }
-      app.upload.sessionId = String(request.session_id);
-      app.upload.sessionToken = String(request.session_token || "");
+      upload.sessionId = String(request.session_id);
+      upload.sessionToken = String(request.session_token || "");
+      startBridgeTransfer(upload);
       const tokens = request.tokens && typeof request.tokens === "object" ? request.tokens : {};
       const resume = request.resume && typeof request.resume === "object" ? request.resume : {};
 
       for (let index = 0; index < items.length; index += 1) {
-        if (!app.upload) return;
+        if (app.upload !== upload || upload.cancelRequested || upload.status === "cancelled") {
+          throw uploadCancelledError();
+        }
         const item = items[index];
         const token = safeText(tokens[item.id]);
         if (!token) {
           throw new ClientError("电脑没有返回文件令牌，请重新发送。", 0);
         }
-        const uploadItem = app.upload.files[index];
-        app.upload.status = "uploading";
-        app.upload.currentIndex = index;
-        app.upload.currentName = item.name;
+        const uploadItem = upload.files[index];
+        upload.status = "uploading";
+        upload.currentIndex = index;
+        upload.currentName = item.name;
         const resumeOffset = clamp(Number(resume[item.id]) || 0, 0, item.size);
-        app.upload.currentLoaded = resumeOffset;
+        upload.currentLoaded = resumeOffset;
         noteUploadProgress(true);
-        await uploadOneFile(uploadItem, token, resumeOffset);
-        await completeOneFile(uploadItem, token);
-        app.upload.completedBytes += item.size;
-        app.upload.currentLoaded = 0;
+        await uploadOneFile(upload, uploadItem, token, resumeOffset);
+        await completeOneFile(upload, uploadItem, token);
+        if (app.upload !== upload || upload.cancelRequested) throw uploadCancelledError();
+        upload.completedBytes += item.size;
+        upload.currentLoaded = 0;
         uploadItem.done = true;
-        app.upload.speed = 0;
-        app.upload.eta = 0;
+        upload.speed = 0;
+        upload.eta = 0;
         noteUploadProgress(true);
       }
 
-      app.upload.status = "completed";
-      app.upload.finishedAt = Date.now();
-      app.upload.speed = 0;
-      app.upload.eta = 0;
-      app.upload.currentLoaded = 0;
-      app.upload.completedBytes = totalBytes;
-      app.upload.error = "";
+      if (app.upload !== upload || upload.cancelRequested) return;
+      upload.status = "completed";
+      upload.finishedAt = Date.now();
+      upload.speed = 0;
+      upload.eta = 0;
+      upload.currentLoaded = 0;
+      upload.completedBytes = totalBytes;
+      upload.error = "";
       renderTransfers(true);
       const deviceName = app.state && app.state.device ? app.state.device.alias : "电脑";
       const toastText =
@@ -2288,38 +2835,40 @@
           : `已发送 ${items.length} 个文件到 ${deviceName}`;
       showToast(toastText, "success", 4200);
       setSRStatus("文件发送完成");
-      app.uploadClearTimer = window.setTimeout(() => {
-        if (app.upload && app.upload.status === "completed") {
-          app.upload = null;
-          app.lastSampleAt = 0;
-          renderTransfers(true);
-        }
-      }, 5000);
+      updateBridgeTransfer(upload);
+      finishBridgeTransfer(upload, true, items.length === 1 ? "发送完成" : `已发送 ${items.length} 个文件`);
+      scheduleUploadCleanup(upload, "completed", 5000);
     } catch (error) {
-      if (!app.upload) return;
-      app.upload.status = "failed";
-      app.upload.finishedAt = Date.now();
-      app.upload.speed = 0;
-      app.upload.eta = null;
-      app.upload.error = friendlyError(error, "文件没有发送完成，请重试。");
+      if (app.upload !== upload) return;
+      if (
+        isUploadCancelledError(error, upload) ||
+        error.status === 410 ||
+        uploadCancelledByServer(upload)
+      ) {
+        markUploadCancelled(upload, {
+          notify: !upload.cancelRequested,
+          message: "电脑端已取消这次传输",
+        });
+        return;
+      }
+      upload.status = "failed";
+      upload.finishedAt = Date.now();
+      upload.speed = 0;
+      upload.eta = null;
+      upload.error = friendlyError(error, "文件没有发送完成，请重试。");
       renderTransfers(true);
       if (error.status !== 401) {
-        showToast(`发送失败：${app.upload.error}`, "error", 5200);
+        showToast(`发送失败：${upload.error}`, "error", 5200);
       }
       setSRStatus("文件发送失败");
-      app.uploadClearTimer = window.setTimeout(() => {
-        if (app.upload && app.upload.status === "failed") {
-          app.upload = null;
-          app.lastSampleAt = 0;
-          renderTransfers(true);
-        }
-      }, 15000);
+      finishBridgeTransfer(upload, false, upload.error || "发送失败");
+      scheduleUploadCleanup(upload, "failed", 15000);
     }
   }
 
   function xhrUpload(options) {
     return new Promise((resolve, reject) => {
-      const { sessionId, fileId, token, file, offset, onProgress } = options;
+      const { upload, sessionId, fileId, token, file, offset, onProgress } = options;
       const query = new URLSearchParams({
         session_id: sessionId,
         file_id: fileId,
@@ -2333,15 +2882,25 @@
         reject(new ClientError("当前浏览器无法上传文件。", 0));
         return;
       }
+      const cleanup = () => {
+        if (upload && upload.xhr === xhr) upload.xhr = null;
+      };
       xhr.open("POST", `/api/v1/transfer/upload?${query.toString()}`, true);
       xhr.setRequestHeader("Content-Type", "application/octet-stream");
       xhr.responseType = "text";
+      if (upload) upload.xhr = xhr;
       xhr.upload.onprogress = (event) => {
+        if (upload && upload.cancelRequested) return;
         if (event && event.lengthComputable) {
           onProgress(Number(event.loaded) || 0, Number(event.total) || 0);
         }
       };
       xhr.onload = () => {
+        cleanup();
+        if (upload && upload.cancelRequested) {
+          reject(uploadCancelledError());
+          return;
+        }
         let data = null;
         try {
           data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
@@ -2356,6 +2915,11 @@
           }
           return;
         }
+        if (xhr.status === 410) {
+          /* 服务端只会用 410 表示“传输已取消” */
+          reject(uploadCancelledError());
+          return;
+        }
         reject(
           new ClientError(
             (data && data.error) || `上传失败（${xhr.status}）`,
@@ -2365,45 +2929,58 @@
         );
       };
       xhr.onerror = () => {
+        cleanup();
+        if (upload && upload.cancelRequested) {
+          reject(uploadCancelledError());
+          return;
+        }
         reject(new ClientError("网络中断，正在尝试续传…", 0));
       };
       xhr.onabort = () => {
+        cleanup();
+        if (upload && upload.cancelRequested) {
+          reject(uploadCancelledError());
+          return;
+        }
         reject(new ClientError("上传已中止。", -1));
       };
       try {
         const body = offset > 0 ? file.slice(offset) : file;
         xhr.send(body);
       } catch (_) {
+        cleanup();
         reject(new ClientError("浏览器无法读取这个文件。", 0));
       }
     });
   }
 
-  async function uploadOneFile(uploadItem, token, initialOffset) {
+  async function uploadOneFile(upload, uploadItem, token, initialOffset) {
     const size = Number(uploadItem.size) || 0;
     let offset = clamp(Number(initialOffset) || 0, 0, size);
     let retries = 0;
     while (true) {
-      if (!app.upload || app.upload.status !== "uploading") {
-        throw new ClientError("传输已中止。", -1);
+      if (app.upload !== upload || upload.status !== "uploading" || upload.cancelRequested) {
+        throw uploadCancelledError();
       }
       if (size > 0 && offset >= size) return;
       try {
         const result = await xhrUpload({
-          sessionId: app.upload.sessionId,
+          upload,
+          sessionId: upload.sessionId,
           fileId: uploadItem.id,
           token,
           file: uploadItem.file,
           offset,
           onProgress: (loaded) => {
-            if (!app.upload) return;
-            app.upload.currentLoaded = clamp(offset + loaded, 0, size);
+            if (app.upload !== upload || upload.cancelRequested) return;
+            upload.currentLoaded = clamp(offset + loaded, 0, size);
             noteUploadProgress();
           },
         });
+        if (app.upload !== upload || upload.cancelRequested) throw uploadCancelledError();
         const received = clamp(Number(result.received) || 0, 0, size);
         if (result.complete || (size > 0 && received >= size)) {
-          if (app.upload) app.upload.currentLoaded = size;
+          upload.currentLoaded = size;
           noteUploadProgress(true);
           return;
         }
@@ -2413,19 +2990,26 @@
           throw new ClientError("文件上传没有完成，请重试。", 0);
         }
         await sleep(400 * retries);
+        if (app.upload !== upload || upload.cancelRequested) throw uploadCancelledError();
+        if (uploadCancelledByServer(upload)) throw uploadCancelledError();
       } catch (error) {
+        if (isUploadCancelledError(error, upload)) throw uploadCancelledError();
+        if (error.status === 410) throw uploadCancelledError();
+        if (uploadCancelledByServer(upload)) throw uploadCancelledError();
         if (error.status === -1) throw error;
-        if ([403, 404, 410, 413, 507].includes(error.status)) throw error;
+        if ([403, 404, 413, 507].includes(error.status)) throw error;
         retries += 1;
         if (retries > MAX_FILE_RETRIES) throw error;
         await sleep(600 * retries);
+        if (app.upload !== upload || upload.cancelRequested) throw uploadCancelledError();
+        if (uploadCancelledByServer(upload)) throw uploadCancelledError();
         let recovered = offset;
         if (error.data && Number.isFinite(Number(error.data.received))) {
           recovered = Number(error.data.received);
         } else {
           try {
             const query = new URLSearchParams({
-              session_id: app.upload.sessionId,
+              session_id: upload.sessionId,
               file_id: uploadItem.id,
               token,
             });
@@ -2434,38 +3018,58 @@
               timeout: 10000,
               handle401: false,
             });
+            if (upload.cancelRequested) throw uploadCancelledError();
+            if (status && (status.session_status === "cancelled" || status.status === "cancelled")) {
+              throw uploadCancelledError();
+            }
             recovered = Number(status.received) || 0;
           } catch (statusError) {
+            if (isUploadCancelledError(statusError, upload)) throw uploadCancelledError();
+            if (uploadCancelledByServer(upload)) throw uploadCancelledError();
             if ([403, 404].includes(statusError.status)) throw error;
           }
         }
+        if (app.upload !== upload || upload.cancelRequested) throw uploadCancelledError();
+        if (uploadCancelledByServer(upload)) throw uploadCancelledError();
         offset = clamp(recovered, 0, size);
-        if (app.upload) app.upload.currentLoaded = offset;
+        if (app.upload === upload) upload.currentLoaded = offset;
         noteUploadProgress(true);
         if (size > 0 && offset >= size) return;
       }
     }
   }
 
-  async function completeOneFile(uploadItem, token) {
+  async function completeOneFile(upload, uploadItem, token) {
     let lastError = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      if (!app.upload) throw new ClientError("传输已中止。", -1);
+      if (app.upload !== upload || upload.cancelRequested || upload.status === "cancelled") {
+        throw uploadCancelledError();
+      }
       try {
-        return await api("/api/v1/transfer/complete", {
+        const result = await api("/api/v1/transfer/complete", {
           method: "POST",
           timeout: 20000,
           handle401: false,
           body: {
-            session_id: app.upload.sessionId,
+            session_id: upload.sessionId,
             file_id: uploadItem.id,
             token,
             sha256: "",
           },
         });
+        if (isUploadCancelledError(null, upload)) throw uploadCancelledError();
+        return result;
       } catch (error) {
+        if (isUploadCancelledError(error, upload)) throw uploadCancelledError();
+        if (error.status === 410) throw uploadCancelledError();
+        if (uploadCancelledByServer(upload)) throw uploadCancelledError();
         lastError = error;
-        if (error.status === 401 || error.status === 403 || error.status === 404 || error.status === 422) {
+        if (
+          error.status === 401 ||
+          error.status === 403 ||
+          error.status === 404 ||
+          error.status === 422
+        ) {
           throw error;
         }
         await sleep(700 * (attempt + 1));
@@ -2519,6 +3123,258 @@
   }
 
   /* ------------------------------------------------------------------------
+     14b. 系统分享入队（APK 桥接）
+     ------------------------------------------------------------------------ */
+  function parseBridgePayload(raw) {
+    if (raw === null || raw === undefined || raw === "") return null;
+    if (typeof raw === "string") {
+      const text = raw.trim();
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        return null;
+      }
+    }
+    return typeof raw === "object" ? raw : null;
+  }
+
+  function resolveSharedUrl(raw) {
+    const value = safeText(raw).trim();
+    if (!value) return null;
+    if (/^https?:\/\//i.test(value)) return value;
+    if (value.startsWith("/")) {
+      try {
+        return new URL(value, location.href).href;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function fileNameFromUrl(raw) {
+    const value = safeText(raw).trim();
+    if (!value) return "";
+    try {
+      const url = new URL(value, location.href);
+      const name = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
+      return name || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function normalizeSharedPayload(payload) {
+    const files = [];
+    const texts = [];
+    const localKeys = new Set();
+
+    const addText = (value, id) => {
+      const text = typeof value === "string" ? value : safeText(value && value.text);
+      if (!text.trim()) return;
+      texts.push({ id: id ? String(id) : "", text });
+    };
+
+    const addFile = (entry) => {
+      if (typeof entry === "string") {
+        const name = fileNameFromUrl(entry) || "分享的文件";
+        if (!name || !entry) return;
+        files.push({ id: "", url: entry, name, mime: "" });
+        return;
+      }
+      if (!entry || typeof entry !== "object") return;
+      const text = typeof entry.text === "string" ? entry.text : "";
+      const rawUrl = safeText(entry.url || entry.uri || entry.path || "");
+      if (!rawUrl && text.trim()) {
+        addText(text, entry.id);
+        return;
+      }
+      if (!rawUrl) return;
+      const id = safeText(entry.id || entry.assetId || entry.asset_id || "");
+      const name =
+        safeText(entry.name || entry.filename || entry.fileName || "").trim() ||
+        fileNameFromUrl(rawUrl) ||
+        "分享的文件";
+      const mime = safeText(entry.mime || entry.mimeType || entry.mime_type || entry.type || "");
+      const key = `${id || ""}|${rawUrl}|${name}`;
+      if (localKeys.has(key)) return;
+      localKeys.add(key);
+      files.push({ id, url: rawUrl, name, mime });
+    };
+
+    if (Array.isArray(payload)) {
+      payload.forEach(addFile);
+    } else if (payload && typeof payload === "object") {
+      const fileList = Array.isArray(payload.files)
+        ? payload.files
+        : Array.isArray(payload.items)
+          ? payload.items
+          : Array.isArray(payload.uris)
+            ? payload.uris
+            : [];
+      fileList.forEach(addFile);
+      if (typeof payload.text === "string") addText(payload.text, payload.textId || payload.text_id);
+      if (Array.isArray(payload.texts)) {
+        payload.texts.forEach((entry) => {
+          if (typeof entry === "string") addText(entry);
+          else if (entry) addText(entry.text, entry.id);
+        });
+      }
+      if (typeof payload.url === "string") addFile(payload);
+    }
+    return { files, texts };
+  }
+
+  function makeSharedFile(blob, name, type) {
+    const mime = safeText(type) || "application/octet-stream";
+    try {
+      return new File([blob], name, { type: mime, lastModified: Date.now() });
+    } catch (_) {
+      try {
+        blob.name = name;
+        blob.lastModified = Date.now();
+      } catch (__) {
+        /* ignore */
+      }
+      return blob;
+    }
+  }
+
+  function ackShared(ids) {
+    if (!bridgeHas("ackSharedFiles")) return false;
+    const payload = JSON.stringify(Array.isArray(ids) ? ids : []);
+    try {
+      const result = window.AsterShell.ackSharedFiles(payload);
+      if (result && typeof result.catch === "function") result.catch(() => {});
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function pullSharedFiles() {
+    if (!bridgeHas("takeSharedFiles")) return { added: 0, failed: 0 };
+    if (sharedFeed.busy) return { added: 0, failed: 0 };
+    if (!app.token || !app.state || app.view !== "app") {
+      sharedFeed.pending = true;
+      return { added: 0, failed: 0 };
+    }
+    if (!canStartUpload(true)) {
+      sharedFeed.pending = true;
+      return { added: 0, failed: 0 };
+    }
+
+    sharedFeed.busy = true;
+    let addedFiles = 0;
+    let addedText = false;
+    let failed = 0;
+    const ackIds = [];
+    try {
+      let raw;
+      try {
+        raw = bridgeCall("takeSharedFiles");
+        if (raw && typeof raw.then === "function") raw = await raw;
+      } catch (_) {
+        return { added: 0, failed: 0 };
+      }
+      const payload = parseBridgePayload(raw);
+      if (!payload) {
+        sharedFeed.pending = false;
+        return { added: 0, failed: 0 };
+      }
+      const normalized = normalizeSharedPayload(payload);
+      if (!normalized.files.length && !normalized.texts.length) {
+        sharedFeed.pending = false;
+        return { added: 0, failed: 0 };
+      }
+
+      const queue = [];
+      for (const entry of normalized.files) {
+        if (entry.id && sharedFeed.seenIds.has(entry.id)) continue;
+        const dedupeKey = entry.id ? `id:${entry.id}` : `url:${entry.url}|${entry.name}`;
+        if (sharedFeed.seenKeys.has(dedupeKey)) continue;
+        try {
+          const target = resolveSharedUrl(entry.url);
+          if (!target) throw new Error("unsupported shared url");
+          const response = await fetch(target, { cache: "no-store", credentials: "omit" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const blob = await response.blob();
+          const name = entry.name || fileNameFromUrl(entry.url) || "分享的文件";
+          queue.push({ file: makeSharedFile(blob, name, entry.mime || blob.type || ""), name, relPath: name });
+          sharedFeed.seenKeys.add(dedupeKey);
+          if (entry.id) {
+            sharedFeed.seenIds.add(entry.id);
+            ackIds.push(entry.id);
+          }
+        } catch (_) {
+          failed += 1;
+        }
+      }
+
+      if (queue.length) {
+        addedFiles = addSelectionFiles(queue);
+      }
+
+      if (normalized.texts.length) {
+        const text = normalized.texts.map((entry) => entry.text).join("\n\n");
+        if (text.trim()) {
+          ui.textInput.value = text;
+          updateTextCount();
+          addedText = true;
+          normalized.texts.forEach((entry) => {
+            if (entry.id && !ackIds.includes(entry.id)) ackIds.push(entry.id);
+          });
+        }
+      }
+
+      /* 即使只有文本（没有文件 id），也要 ack 一次让 Android 清空暂存；同时在有文件时一并清理 */
+      if (ackIds.length || addedText) ackShared(ackIds);
+      sharedFeed.pending = false;
+
+      if (addedFiles > 0) {
+        setTab("send", { scroll: false });
+        setSendMode("files");
+        renderSendList();
+        openSheet("send-sheet", ui.sendFiles);
+        showToast(`已从分享添加 ${addedFiles} 个文件到待发送列表`, "success", 3600);
+        setSRStatus(`已从分享添加 ${addedFiles} 个文件`);
+        if (failed > 0) {
+          window.setTimeout(() => showToast(`有 ${failed} 个分享文件添加失败`, "info", 3200), 700);
+        }
+      } else if (addedText) {
+        setTab("send", { scroll: false });
+        setSendMode("text");
+        showToast("已从分享填入文本", "success", 2800);
+        setSRStatus("已从分享填入文本");
+      } else if (failed > 0) {
+        showToast("分享文件添加失败，请稍后重试", "info", 3200);
+      }
+      return { added: addedFiles, failed };
+    } catch (error) {
+      console.warn("[Aster] 处理系统分享失败", error);
+      showToast("分享内容读取失败，请稍后重试", "info", 3000);
+      return { added: 0, failed: 0 };
+    } finally {
+      sharedFeed.busy = false;
+    }
+  }
+
+  /* APK 端可通过 window.AsterSharedFeed.pull() 在分享回到页面时主动拉取 */
+  window.AsterSharedFeed = {
+    pull() {
+      return pullSharedFiles();
+    },
+  };
+
+  /* APK 通知栏的“取消”按钮会调用 window.AsterTransfer.cancel() */
+  window.AsterTransfer = {
+    cancel() {
+      return cancelLocalUpload({ notify: true });
+    },
+  };
+
+  /* ------------------------------------------------------------------------
      15. 设置抽屉
      ------------------------------------------------------------------------ */
   function openSettings(trigger) {
@@ -2529,13 +3385,20 @@
   function renderSettings() {
     const state = app.state;
     if (!state) return;
+    syncWebClient(state);
     const device = state.device || {};
     const settings = state.settings || {};
     const web = state.web || {};
     const deviceAlias = safeText(device.alias, "这台电脑");
+    const clientLabel = clientTypeLabel();
 
     if (ui.settingsWebName) ui.settingsWebName.textContent = safeText(web.name, app.phoneName);
-    if (ui.settingsWebMeta) ui.settingsWebMeta.textContent = `已与 ${deviceAlias} 配对`;
+    if (ui.settingsWebMeta) ui.settingsWebMeta.textContent = `已与 ${deviceAlias} 配对 · ${clientLabel}`;
+    if (ui.settingsClientType) ui.settingsClientType.textContent = clientLabel;
+    if (ui.settingsNameInput && document.activeElement !== ui.settingsNameInput) {
+      ui.settingsNameInput.value = safeText(web.name, app.phoneName);
+    }
+    if (ui.settingsNameSave) ui.settingsNameSave.disabled = !!app.nameBusy;
     if (ui.settingsDeviceName) ui.settingsDeviceName.textContent = deviceAlias;
     if (ui.settingsAddress) {
       ui.settingsAddress.textContent = `${safeText(device.ip, location.hostname)}:${safeText(device.port, location.port || "47820")}`;
@@ -2592,7 +3455,234 @@
         ? "切换访问协议（需要重新配对一次）"
         : (settings.tls_error || "HTTPS 不可用");
     }
+    renderVersionPanel();
     updateInstallRow();
+  }
+
+  /* ---- 本机名称 / 版本与更新 -------------------------------------------- */
+  function currentAppVersion() {
+    if (app.client === "apk") {
+      const bridgeVersion = safeText(bridgeCall("appVersion")).trim();
+      if (bridgeVersion) return bridgeVersion;
+    }
+    const state = app.state || {};
+    return safeText((state.settings && state.settings.version) || state.version, "").trim();
+  }
+
+  function displayVersion(value) {
+    const text = safeText(value).trim();
+    if (!text) return "—";
+    return /^v/i.test(text) ? text : `v${text}`;
+  }
+
+  function parseVersionParts(value) {
+    const text = String(value === null || value === undefined ? "" : value)
+      .trim()
+      .replace(/^v/i, "");
+    const match = text.match(/^(\d+(?:\.\d+)*)/);
+    if (!match) return [];
+    return match[1].split(".").map((part) => Number(part) || 0);
+  }
+
+  function compareVersions(left, right) {
+    const a = parseVersionParts(left);
+    const b = parseVersionParts(right);
+    if (!a.length || !b.length) return 0;
+    const width = Math.max(a.length, b.length);
+    for (let index = 0; index < width; index += 1) {
+      const delta = (a[index] || 0) - (b[index] || 0);
+      if (delta !== 0) return delta > 0 ? 1 : -1;
+    }
+    return 0;
+  }
+
+  function setUpdateStatus(message, tone) {
+    if (!ui.settingsUpdateStatus) return;
+    ui.settingsUpdateStatus.textContent = String(message || "");
+    ui.settingsUpdateStatus.classList.remove("is-ok", "is-error", "is-busy");
+    if (tone) ui.settingsUpdateStatus.classList.add(tone);
+  }
+
+  function renderVersionPanel() {
+    if (ui.settingsVersionLabel) {
+      ui.settingsVersionLabel.textContent = app.client === "apk" ? "手机端版本" : "电脑端版本";
+    }
+    if (ui.settingsAppVersion) {
+      ui.settingsAppVersion.textContent = displayVersion(currentAppVersion());
+    }
+    const result = app.updateResult;
+    if (ui.updateDownloadRow) ui.updateDownloadRow.hidden = !(result && result.version && result.url);
+    if (result && result.version && ui.updateDownloadLabel) {
+      ui.updateDownloadLabel.textContent = `下载新版本 ${result.version}`;
+    }
+  }
+
+  function openUpdateDownload() {
+    const result = app.updateResult;
+    const url = result ? safeText(result.url) : "";
+    if (!url || !/^https?:\/\//i.test(url)) {
+      showToast("没有可用的下载地址", "error", 3000);
+      return;
+    }
+    if (app.client === "apk" && bridgeHas("openUrl")) {
+      bridgeCall("openUrl", url);
+      return;
+    }
+    try {
+      window.open(url, "_blank", "noopener");
+      return;
+    } catch (_) {
+      /* 继续尝试直接跳转 */
+    }
+    try {
+      window.location.href = url;
+    } catch (_) {
+      showToast("无法打开下载链接", "error", 3000);
+    }
+  }
+
+  async function checkForUpdates() {
+    if (app.updateBusy) return;
+    app.updateBusy = true;
+    if (ui.checkUpdate) {
+      ui.checkUpdate.disabled = true;
+      ui.checkUpdate.classList.add("is-loading");
+    }
+    setUpdateStatus("正在检查更新…", "is-busy");
+    try {
+      if (app.client === "apk" && bridgeHas("checkUpdate")) {
+        let bridgeFailed = false;
+        try {
+          const bridgeResult = window.AsterShell.checkUpdate();
+          if (bridgeResult && typeof bridgeResult.then === "function") {
+            await bridgeResult;
+          }
+        } catch (_) {
+          bridgeFailed = true;
+        }
+        if (bridgeFailed) {
+          throw new ClientError("无法检查更新", 0);
+        }
+        app.updateResult = null;
+        setUpdateStatus("已交由手机端检查更新，请留意系统提示", "is-ok");
+        return;
+      }
+
+      const data = await api("/api/v1/update?force=1", {
+        auth: false,
+        handle401: false,
+        timeout: 15000,
+      });
+      if (!data || data.error || !data.latest) {
+        throw new ClientError((data && data.error) || "无法检查更新", 0);
+      }
+      const latest = data.latest;
+      /* APK 且能读到原生版本号时比较安卓包；否则按网页端（电脑端）版本比较 */
+      const apkBridgeVersion = app.client === "apk" ? safeText(bridgeCall("appVersion")).trim() : "";
+      const platform = apkBridgeVersion ? "android" : "desktop";
+      const platformInfo =
+        latest[platform] && typeof latest[platform] === "object" ? latest[platform] : {};
+      const latestVersion = safeText(platformInfo.version || latest.version).trim();
+      if (!latestVersion || !parseVersionParts(latestVersion)) {
+        throw new ClientError("无法检查更新", 0);
+      }
+      const state = app.state || {};
+      const currentVersion =
+        apkBridgeVersion ||
+        currentAppVersion() ||
+        safeText(data.current && data.current[platform]) ||
+        safeText((state.settings && state.settings.version) || state.version);
+      if (compareVersions(latestVersion, currentVersion) > 0) {
+        const fallbackPage = safeText(data.download_page || (latest && latest.page) || "");
+        const downloadUrl = safeText(platformInfo.url) || fallbackPage;
+        app.updateResult = { version: latestVersion, url: downloadUrl };
+        setUpdateStatus(
+          downloadUrl ? `发现新版本 ${latestVersion}` : `发现新版本 ${latestVersion}，请前往官网下载`,
+          "is-ok"
+        );
+      } else {
+        app.updateResult = null;
+        setUpdateStatus("已是最新", "is-ok");
+      }
+    } catch (error) {
+      app.updateResult = null;
+      setUpdateStatus("无法检查更新", "is-error");
+    } finally {
+      app.updateBusy = false;
+      if (ui.checkUpdate) {
+        ui.checkUpdate.disabled = false;
+        ui.checkUpdate.classList.remove("is-loading");
+      }
+      renderVersionPanel();
+    }
+  }
+
+  async function saveLocalName() {
+    if (app.nameBusy) return;
+    const name = cleanName(ui.settingsNameInput ? ui.settingsNameInput.value : "");
+    if (!name) {
+      showToast("本机名称不能为空", "error", 2400);
+      if (ui.settingsNameInput) {
+        try {
+          ui.settingsNameInput.focus({ preventScroll: true });
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    app.nameBusy = true;
+    if (ui.settingsNameSave) {
+      ui.settingsNameSave.disabled = true;
+      ui.settingsNameSave.textContent = "保存中…";
+    }
+    let saved = false;
+    let failure = null;
+    try {
+      const result = await api("/api/v1/web/name", {
+        method: "POST",
+        body: { name },
+        timeout: 10000,
+      });
+      const web = result && result.web ? result.web : {};
+      const finalName = cleanName(web.name) || name;
+      app.phoneName = finalName;
+      store.set(STORAGE.phoneName, app.phoneName);
+      if (app.state) {
+        app.state.web = Object.assign({}, app.state.web || {}, { name: finalName });
+        if (web.client) app.webClient = normalizeClientKind(web.client);
+      }
+      saved = true;
+      showToast("本机名称已更新", "success", 2400);
+      setSRStatus("本机名称已更新");
+    } catch (error) {
+      failure = error;
+      if (error && [404, 405, 501].includes(error.status)) {
+        /* 旧版服务端还没有改名接口：至少把名字保存在本机 */
+        app.phoneName = name;
+        store.set(STORAGE.phoneName, name);
+        if (app.state) {
+          app.state.web = Object.assign({}, app.state.web || {}, { name });
+        }
+        saved = true;
+        showToast("已在本机保存名称，电脑端暂不支持改名", "info", 3400);
+      }
+    } finally {
+      app.nameBusy = false;
+      if (ui.settingsNameSave) {
+        ui.settingsNameSave.disabled = false;
+        ui.settingsNameSave.textContent = "保存";
+      }
+    }
+    if (saved) {
+      if (app.client === "apk") bridgeCall("setDeviceName", app.phoneName);
+      if (ui.pairName) ui.pairName.value = app.phoneName;
+      if (ui.settingsNameInput) ui.settingsNameInput.value = app.phoneName;
+      renderDevice();
+      renderSettings();
+    } else if (failure && failure.status !== 401) {
+      showToast(friendlyError(failure, "名称没有保存成功，请重试。"), "error", 3600);
+    }
   }
 
   async function toggleHttps() {
@@ -3038,6 +4128,20 @@
     ui.autoAcceptToggle.addEventListener("click", toggleAutoAccept);
     if (ui.httpsToggle) ui.httpsToggle.addEventListener("click", toggleHttps);
     if (ui.openHttps) ui.openHttps.addEventListener("click", openOtherScheme);
+    if (ui.settingsNameSave) ui.settingsNameSave.addEventListener("click", saveLocalName);
+    if (ui.settingsNameInput) {
+      ui.settingsNameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          saveLocalName();
+        }
+      });
+    }
+    if (ui.checkUpdate) ui.checkUpdate.addEventListener("click", checkForUpdates);
+    if (ui.updateDownload) ui.updateDownload.addEventListener("click", openUpdateDownload);
+    if (ui.cancelAllTransfers) {
+      ui.cancelAllTransfers.addEventListener("click", cancelAllTransfers);
+    }
     ui.copyDir.addEventListener("click", () => {
       const dir = ui.settingsDir.textContent || "";
       if (dir && dir !== "—") copyText(dir);
@@ -3143,6 +4247,7 @@
       if (!document.hidden && app.view === "app") {
         if (!app.connected) probeConnection({ quiet: true });
         if (app.renderQueued) scheduleRender();
+        if (bridgeHas("takeSharedFiles")) pullSharedFiles();
       }
     });
     window.addEventListener("online", () => {
@@ -3200,7 +4305,16 @@
       ui.sheetBackdrop.setAttribute("aria-hidden", "true");
     }
     applyTheme(app.theme, { persist: false });
-    app.phoneName = normalizePhoneName(app.phoneName);
+    /* 原生桥可能晚于脚本注入，初始化时再识别一次客户端类型 */
+    app.client = detectClientKind();
+    const storedName = cleanName(store.get(STORAGE.phoneName));
+    if (storedName && !isLegacyDefaultPhoneName(storedName)) {
+      app.phoneName = storedName;
+    } else {
+      /* 空名或旧默认名（我的 Android 手机/我的手机 等）按当前客户端重新生成 */
+      app.phoneName = normalizePhoneName("");
+      store.set(STORAGE.phoneName, app.phoneName);
+    }
     ui.pairName.value = app.phoneName;
     updateTextCount();
     updateConnection();

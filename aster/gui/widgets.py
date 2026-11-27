@@ -7,7 +7,17 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    Property,
+    QEasingCurve,
+    QPointF,
+    QPropertyAnimation,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -74,6 +84,95 @@ class SchemeSwitch(QFrame):
     def _choose(self, prefer: bool) -> None:
         self.set_prefer(prefer)
         self.changed.emit(prefer)
+
+
+class ThemeSwitch(QFrame):
+    """顶栏右上角的浅色 / 深色滑块。"""
+
+    changed = Signal(bool)
+
+    def __init__(self, theme: str = "light", parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setObjectName("ThemeSwitch")
+        self.setFixedSize(64, 30)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("切换浅色 / 深色")
+        self._dark = theme == "dark"
+        self._knob = 1.0 if self._dark else 0.0
+        self._anim = QPropertyAnimation(self, b"knob", self)
+        self._anim.setDuration(170)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._icons: dict[tuple[str, str], QPixmap] = {}
+
+    def _icon(self, name: str, color: str, size: int) -> QPixmap:
+        key = (name, color)
+        pixmap = self._icons.get(key)
+        if pixmap is None:
+            pixmap = make_icon(name, color, size).pixmap(size, size)
+            self._icons[key] = pixmap
+        return pixmap
+
+    def _get_knob(self) -> float:
+        return self._knob
+
+    def _set_knob(self, value: float) -> None:
+        self._knob = float(value)
+        self.update()
+
+    knob = Property(float, _get_knob, _set_knob)
+
+    def is_dark(self) -> bool:
+        return self._dark
+
+    def set_dark(self, dark: bool, animate: bool = True) -> None:
+        dark = bool(dark)
+        if dark == self._dark and abs(self._knob - (1.0 if dark else 0.0)) < 0.01:
+            return
+        self._dark = dark
+        target = 1.0 if dark else 0.0
+        self._anim.stop()
+        if animate:
+            self._anim.setStartValue(self._knob)
+            self._anim.setEndValue(target)
+            self._anim.start()
+        else:
+            self._set_knob(target)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.set_dark(not self._dark)
+            self.changed.emit(self._dark)
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = palette("dark" if self._dark else "light")
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(0.8, 0.8, self.width() - 1.6, self.height() - 1.6)
+        track = QColor(p["accent"] if self._dark else p["bg_alt"])
+        if self._dark:
+            track.setAlpha(215)
+        painter.setPen(QPen(QColor(p["border_strong"] if not self._dark else p["accent"]), 1))
+        painter.setBrush(track)
+        painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+
+        knob = 24.0
+        travel = self.width() - knob - 6.0
+        x = 3.0 + travel * self._knob
+        painter.setPen(Qt.PenStyle.NoPen)
+        shadow = QColor(10, 20, 40, 32)
+        painter.setBrush(shadow)
+        painter.drawEllipse(QPointF(x + knob / 2, 2.4 + knob / 2), knob / 2, knob / 2)
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawEllipse(QPointF(x + knob / 2, 2.2 + knob / 2), knob / 2, knob / 2)
+
+        sun_active = not self._dark
+        moon_active = self._dark
+        sun_icon = self._icon("sun", p["accent"] if sun_active else p["text3"], 15)
+        moon_icon = self._icon("moon", p["accent"] if moon_active else p["text3"], 14)
+        painter.drawPixmap(int(9), int((self.height() - 15) / 2), sun_icon)
+        painter.drawPixmap(int(self.width() - 9 - 14), int((self.height() - 14) / 2), moon_icon)
+        painter.end()
 
 
 class GradientTitle(QLabel):
@@ -405,9 +504,14 @@ class DeviceCard(QFrame):
         name = str(peer.get("alias") or peer.get("name") or "未知设备")
         self.name.setText(name)
         self.name.setToolTip(name)
+        client = str(peer.get("client") or "web").lower()
         if is_web:
-            addr = f"手机网页 · {peer.get('ip') or '局域网'}"
-            self.type_label.setText("网页设备")
+            if client == "apk":
+                addr = f"APK 手机 · {peer.get('ip') or '局域网'}"
+                self.type_label.setText("Android 手机")
+            else:
+                addr = f"网页端 · {peer.get('ip') or '局域网'}"
+                self.type_label.setText("网页端设备")
             icon_id = "phone"
         else:
             addr = f"{peer.get('ip') or '—'}:{peer.get('port') or '—'}"
@@ -477,7 +581,6 @@ class TransferCard(QFrame):
         self.cancel.setStyleSheet("padding: 3px 9px; font-size: 11px;")
         self.cancel.clicked.connect(lambda: self.cancelClicked.emit(str(self.transfer.get("id") or "")))
         self.cancel.hide()
-        top.addWidget(self.cancel)
         layout.addLayout(top)
 
         self.progress = QProgressBar()
@@ -486,9 +589,14 @@ class TransferCard(QFrame):
         self.progress.setValue(0)
         layout.addWidget(self.progress)
 
+        foot = QHBoxLayout()
+        foot.setContentsMargins(0, 0, 0, 0)
+        foot.setSpacing(8)
         self.stats = QLabel()
         self.stats.setObjectName("Small")
-        layout.addWidget(self.stats)
+        foot.addWidget(self.stats, 1)
+        foot.addWidget(self.cancel)
+        layout.addLayout(foot)
         self.update_transfer(transfer, theme)
 
     def update_transfer(self, transfer: dict[str, Any], theme: str) -> None:
@@ -568,9 +676,7 @@ class TransferCard(QFrame):
                 stats += f"  ·  剩余 {format_duration(eta)}"
         self.stats.setText(stats)
         self.cancel.setVisible(
-            status in ("waiting", "active", "uploading", "verifying")
-            and direction == "out"
-            and not transfer.get("via") == "web"
+            status in ("waiting", "pending", "active", "uploading", "verifying")
         )
 
 

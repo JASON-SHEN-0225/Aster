@@ -1,8 +1,10 @@
-# Android APK（Aster 2.0.0）
+# Android APK（Aster 3.0.0）
+
+> **3.0.0 变更摘要**：APK 启动不再自动扫码，固定停在连接主界面；新增系统分享/微信“用其他应用打开”接入、APK 设备命名、连接页动态星标、后台上传前台服务与通知栏进度/速度/取消、启动自动检查更新。下文部分 2.0 行为描述如与本节冲突，以本节和当前源码为准。
 
 ## 现在有 APK 了
 
-Aster 2.0.0 的 Android 端是一个**原生 Kotlin + WebView 壳**，不是 TWA，也不是 Capacitor 内嵌网页工程。APK 本身不实现传输协议，也不带本地后端；它负责连接电脑、扫码、加载电脑托管的手机网页，以及补齐 WebView 不擅长的原生能力（文件选择、下载到系统 Downloads、自签名 HTTPS 证书确认、返回键、系统浏览器跳转）。
+Aster 3.0.0 的 Android 端是一个**原生 Kotlin + WebView 壳**，不是 TWA，也不是 Capacitor 内嵌网页工程。APK 本身不实现传输协议，也不带本地后端；它负责连接电脑、扫码、加载电脑托管的手机网页，以及补齐 WebView 不擅长的原生能力（文件选择、分享暂存、下载到系统 Downloads、自签名 HTTPS 证书确认、后台上传保活、检查更新、返回键、系统浏览器跳转）。
 
 电脑端协议、GUI、网页都没有改；`aster/webui/` 仍然由电脑托管。APK 与网页同源访问，**不需要新增 CORS**。
 
@@ -10,23 +12,24 @@ Aster 2.0.0 的 Android 端是一个**原生 Kotlin + WebView 壳**，不是 TWA
 |---|---|
 | 包名 | `com.aster.app` |
 | 应用名 | Aster 星流 |
-| versionName / versionCode | `2.0.0` / `20000` |
+| versionName / versionCode | `3.0.0` / `30000` |
 | minSdk / targetSdk / compileSdk | 26 / 35 / 35 |
 | 架构 | 原生 Kotlin + Android WebView |
 | 扫码 | ZXing embedded（`com.journeyapps:zxing-android-embedded:4.3.0`） |
-| release 签名 | 新生成的 `aster-release.jks`，4096-bit RSA / PKCS12 |
-| 构建验证 | `aapt dump badging`、`apksigner verify`、18 个 JVM 单元测试、Android lint、桌面端 10 项 e2e |
-| 真机验证 | **未做真机验证**（本机没有连接 Android 设备，也没有硬件加速模拟器） |
+| release 签名 | `aster-release.jks`，与 2.0 相同证书，可直接覆盖安装 |
+| 构建验证 | `aapt dump badging`、`apksigner verify`、33 个 JVM 单元测试、Android lint、桌面端 14 项 e2e |
+| 真机验证 | **已在 Xiaomi 17 Pro Max（2509FPN0BC，Android 17）实测**：升级安装、连接/配对、动态星标、系统分享、2 GB 后台上传、通知栏进度/速度、返回 App 不中断；未做多厂商/旧系统回归 |
 
 ### 交付物
 
 | 文件 | 大小 | SHA-256 |
 |---|---:|---|
-| [`android/dist/Aster-2.0.0-debug.apk`](../android/dist/Aster-2.0.0-debug.apk) | 3,064,515 B（2.92 MiB） | `9824FF123AE52061301A84095838C0446EC6D8747304A82E358AE8FF4C37E05A` |
-| [`android/dist/Aster-2.0.0-release.apk`](../android/dist/Aster-2.0.0-release.apk) | 2,467,408 B（2.35 MiB） | `17CF2F63663A8A602F4C70A7A0BF8E26C44370C29D3D4B678691C7F5F2CF3693` |
+| [`android/dist/Aster-3.0.0-debug.apk`](../android/dist/Aster-3.0.0-debug.apk) | 3,224,563 B（3.08 MiB） | `6E777D3F1C8D7357BAD4FA6AF3AF67C2CC6FD6F793FFDD504AA6253059DFF495` |
+| [`android/dist/Aster-3.0.0-release.apk`](../android/dist/Aster-3.0.0-release.apk) | 2,515,412 B（2.40 MiB） | `09D4191A3C97C5237EECEFA2A4A896E12FC25B52C1E41B9B4BF45128B5BD0552` |
 
-- debug 使用 Android Debug 证书；release 使用新 keystore。两者包名相同但签名不同，**不能直接互装**，切换前要卸载。
-- release 没有启用 R8 混淆（`isMinifyEnabled = false`），目的是在没有真机回归的前提下降低运行时风险；APK 仍然只有 2.35 MiB。
+- debug 使用 Android Debug 证书；release 使用项目 keystore。两者包名相同但签名不同，**不能直接互装**，切换前要卸载。
+- release 与 2.0 正式版使用同一证书，可直接覆盖安装。
+- release 没有启用 R8 混淆（`isMinifyEnabled = false`），目的是降低运行时风险；APK 仍然只有 2.40 MiB。已在 Xiaomi 17 Pro Max / Android 17 上做过真机回归。
 - keystore 与密码文件都在 `.gitignore` 里，不会提交。
 
 构建日志、清单、签名、lint 和测试输出：
@@ -49,15 +52,15 @@ Aster 2.0.0 的 Android 端是一个**原生 Kotlin + WebView 壳**，不是 TWA
 
 ## 本次构建的变更
 
-- **启动扫码优先**：不再在启动时自动加载上次网页；启动后停在连接页并自动调起扫码页，取消扫码后留在连接页。上次地址仍会预填，点「连接」才进入网页。
+- **启动停留连接页**：3.0 起启动不再自动调起扫码，也不自动加载上次网页；只预填上次地址，点「扫码」或「连接」才继续。
 - **扫码按钮图标对齐**：从 `Button` 的 `drawableStart` 改为独立的 `ImageView + TextView` 水平布局，图标 20dp、文本 `includeFontPadding=false`，图标与文字垂直居中。
 - **适配新版网页的自动下载**：网页点「接收」后会连续触发多个 `<a download>`；HTTP 仍走 `DownloadManager`，HTTPS 自签名改为前台服务队列逐个下载，避免多文件时只保存第一个或互相中断。
 
 ## APK 做了什么
 
-### 1. 启动：扫码优先
+### 1. 启动：停留连接页（3.0）
 
-- 每次启动先停在连接页，并自动调起扫码页（第一次会请求相机权限）；取消扫码或拒绝权限后留在连接页。
+- 每次启动停在连接页，不自动扫码；点「扫码」按钮才请求相机权限并打开 ZXing。
 - 不再自动连接上次地址；上次的 `host + port + 协议` 仍会预填到连接页，点「连接」才进入网页。
 - 输入 `电脑 IP`、`IP:端口`、`主机名:端口` 或完整 URL；省略端口时默认 `47820`。
 - `HTTPS` 开关默认关闭；打开后默认端口显示 `47821`，输入框里如果是默认端口会自动在 `47820 ↔ 47821` 之间切换。
@@ -67,7 +70,7 @@ Aster 2.0.0 的 Android 端是一个**原生 Kotlin + WebView 壳**，不是 TWA
 
 ### 2. 扫码
 
-- 启动后自动调起 ZXing 竖屏扫码页；也可以随时点连接页的「扫码」按钮。
+- 点连接页的「扫码」按钮打开 ZXing 竖屏扫码页；3.0 不再在启动时自动调起。
 - 支持 `http://IP:47820/?pair=xxxxxx`，也支持电脑优先 HTTPS 时的 `https://IP:47821/?pair=xxxxxx`。
 - 扫码成功后自动填地址、同步 HTTPS 开关，并带着 `?pair=` 直接连接；配对码由网页完成配对，壳不额外保存配对码。
 - 手动输入地址同样可以进入网页的配对页输入 6 位配对码。
@@ -272,9 +275,9 @@ app/build/outputs/apk/release/app-release.apk
 ```powershell
 New-Item -ItemType Directory -Force dist | Out-Null
 Copy-Item app\build\outputs\apk\debug\app-debug.apk `
-    dist\Aster-2.0.0-debug.apk -Force
+    dist\Aster-3.0.0-debug.apk -Force
 Copy-Item app\build\outputs\apk\release\app-release.apk `
-    dist\Aster-2.0.0-release.apk -Force
+    dist\Aster-3.0.0-release.apk -Force
 ```
 
 ### 签名
@@ -313,18 +316,18 @@ C8:14:01:C6:67:9E:84:00:34:4C:2F:4D:A2:36:F1:E0:EC:AD:B2:26:E9:E5:9C:1D:95:A9:12
 ```powershell
 # 在 android/ 目录执行
 & "$env:ANDROID_HOME\platform-tools\adb.exe" install -r `
-  dist\Aster-2.0.0-release.apk
+  dist\Aster-3.0.0-release.apk
 ```
 
 或：
 
 ```powershell
-adb install -r dist\Aster-2.0.0-debug.apk
+adb install -r dist\Aster-3.0.0-debug.apk
 ```
 
 ### 手机端
 
-1. 把 `Aster-2.0.0-release.apk` 拷到手机（USB / 网盘 / 微信文件传输均可）。
+1. 把 `Aster-3.0.0-release.apk` 拷到手机（USB / 网盘 / 微信文件传输均可）。
 2. 在文件管理器里点开，允许「安装未知应用」。
 3. 首次打开会请求相机权限并直接进入扫码页；扫电脑上的二维码即可连接。电脑和手机必须在同一 Wi-Fi。
 4. 取消扫码会停在连接页，可手动输入电脑 IP、点「连接」，再在网页里输入 6 位配对码。
@@ -358,7 +361,7 @@ adb uninstall com.aster.app
 
 - 地址支持 `192.168.1.5`、`192.168.1.5:47820`、`aster-pc:47820`、`https://192.168.1.5:47821/?pair=123456`、`[fe80::1]:47820`。
 - 端口省略：HTTP 默认 `47820`，HTTPS 默认 `47821`。
-- 启动自动进扫码；取消扫码/拒绝相机权限后停在连接页。启动时只预填上次地址，**不自动连接网页**；点「连接」才加载。
+- 启动停在连接页；只预填上次地址，**不自动扫码、不自动连接网页**；点「连接」才加载。
 - 保存的是 `host + port + 协议`，不保存 `pair`；连接后网页用 localStorage 里的 token 自动重连；电脑重启后 token 失效，网页会回到配对页。
 - 上次地址会保留；连接失败时错误页有「重试」「换地址」。
 - 电脑端更新 exe 后不需要重装 APK：重新扫码，或在连接页改 IP/端口即可。
@@ -414,7 +417,7 @@ adb uninstall com.aster.app
 - `aapt dump badging`：
 
 ```text
-package: name='com.aster.app' versionCode='20000' versionName='2.0.0' compileSdkVersion='35'
+package: name='com.aster.app' versionCode='30000' versionName='3.0.0' compileSdkVersion='35'
 sdkVersion:'26'
 targetSdkVersion:'35'
 application: label='Aster 星流'
@@ -435,30 +438,37 @@ launchable-activity: name='com.aster.app.MainActivity'
 
 ### 桌面端回归
 
-`python -m unittest tests.test_e2e -v`：**10/10 OK**，包含 HTTP 网页配对 + 手机上传 + offer Range 下载、HTTPS 网页、优先 HTTPS 对等传输、断点续传等。日志：[`desktop-e2e.log`](../android/build-logs/desktop-e2e.log)。
+`python -m unittest tests.test_e2e -v`：**14/14 OK**，包含 HTTP 网页配对 + 手机上传 + offer Range 下载、HTTPS 网页、优先 HTTPS 对等传输、断点续传、上传/下载取消与取消全部、更新版本比较等。
 
-### 未做真机验证
+### 真机回归（2026-11-27）
 
-- `adb devices` 没有连接设备（见 [`adb-devices.txt`](../android/build-logs/adb-devices.txt)）。
-- 本机没有安装 Android 模拟器；`HypervisorPresent=False`，没有可用的 WHPX/HAXM 硬件加速，不采用纯软件模拟。
-- 因此以下项目**没有在真实 Android 设备上执行**：
-  - APK 安装/启动、启动自动进扫码、相机权限；
-  - 连接页、扫码图标对齐的视觉效果；
-  - WebView 加载电脑网页与配对；
-  - 文件选择器多选、真实上传；
-  - HTTP/HTTPS 下载到系统 Downloads、网页连续自动下载多个文件；
-  - 返回键、系统浏览器跳转、Android 13/14/15 的通知与前台服务行为。
-- 已完成的验证是：编译、链接、资源打包、签名、清单、JVM 逻辑测试、lint、桌面端回归。**“未做真机验证”是本次交付的明确限制，不是隐含通过。** 本次启动扫码优先、扫码图标布局、下载队列的改动没有真机回归。
+测试设备：Xiaomi 17 Pro Max（型号 `2509FPN0BC`），Android 17，1200 × 2608 @480dpi，无线 adb。
+
+已完成：
+
+- 从 2.0.0 直接 `adb install -r` 覆盖升级到 3.0.0，签名一致，配置保留；
+- 启动停在连接主界面，不自动扫码；连接页自绘星轨动画连续运行；
+- 手动连接电脑手机网页，页面显示设备名 **Xiaomi 17 Pro Max**，配对/SSE 正常；
+- 系统分享文本：通过 `ACTION_SEND` 进入 Aster，自动填入文本发送框；
+- 系统分享文件：从手机相册/文件管理器真实分享 3.26 MB 图片，确认面板显示文件名与大小，进入待发送队列；
+- 200 MB 文件上传：3 秒完成，平均 61.3 MB/s，接收端 SHA-256 校验通过；
+- 2 GB 文件上传：通知栏实时显示 `2% · 66.8 MB/s`、`66% · 70.5 MB/s`，前台传输页显示进度、速度、剩余时间、取消/取消全部；传输完成后接收端 SHA-256 与源文件一致（`A7C744C1…EA51`），平均 64.9 MB/s / 32 秒；
+- 退后台验证：按 Home 后传输继续，通知栏进度正常更新；
+- **真机发现并修复**：传输中从桌面图标回到 App 会跳回连接页并 `stopLoading`，导致上传中断。已改为“已连接时只把 App 提到前台；传输中连接页不调用 `stopLoading`”，重装修复版后复测：从后台回到 App 时传输仍在 31% 继续，随后完成 2 GB 上传。
+
+真机回归截图：[`docs/screenshots/apk-connect.png`](screenshots/apk-connect.png)、[`apk-share.png`](screenshots/apk-share.png)、[`apk-transfer.png`](screenshots/apk-transfer.png)、[`apk-notification.png`](screenshots/apk-notification.png)。
+
+仍未覆盖：多品牌 ROM（小米之外）、Android 8–12、厂商省电策略、锁屏/杀进程后的恢复、通知栏“取消”按钮的点击链路。上述路径仍以代码与桌面端测试为准。
 
 ## 已知问题与限制
 
-1. **未做真机验证**（见上）。
+1. **真机只覆盖一台 Xiaomi 17 Pro Max / Android 17**：其他厂商的后台限制、通知样式、分享面板差异未回归。
 2. **文件夹上传**：Android WebView 不支持 `webkitdirectory`，网页的文件夹按钮退化为多文件选择；即使走壳的目录枚举，`webkitRelativePath` 也丢失，电脑端看到的是扁平文件。桌面浏览器不受影响。
 3. **WebView 版本依赖**：功能依赖系统 WebView（Android System WebView / Chrome）。Android 8.0 自带 WebView 较旧时，`?pair=` 自动配对、SSE、文件选择等行为可能与新版本不同；建议在应用商店更新 WebView。
 4. **没有后台接收**：页面/进程被系统杀掉后不会收文件；电脑发来的 offer 在桌面端保留约 24 小时，下次打开网页可见。
 5. **HTTPS 切换地址由电脑计算**：网页的 HTTPS 开关会跳到电脑 `get_lan_ip()` 算出的 LAN IP，可能和手机输入的 IP 不同（多网卡、VPN、热点）。壳会把内网 IP + Aster 端口、或带 `pair` 的切换地址留在 WebView；若该 IP 不可达，会显示错误页。
 6. **HTTPS 下载的前台服务**：Android 14+ 使用 `dataSync` 前台服务；Android 15 对前台服务有 6 小时限制。极大文件建议保持应用在前台。
-7. **通知权限**：Android 13+ 首次 HTTPS 下载会请求通知权限；拒绝后仍能下载，但只有完成 Toast，没有进度通知。
+7. **通知权限**：Android 13+ 首次传输会请求通知权限；拒绝后仍能传，但没有进度通知。真机测试时通过系统弹窗授予。
 8. **同名文件**：HTTP `DownloadManager` 路径由壳查询 MediaStore 去重；如果系统/存储提供方不返回其他应用已下载的同名项，仍可能出现同名覆盖/系统自动改名。文件都在 `下载/Aster/`。
 9. **release 未混淆**：`isMinifyEnabled=false`；如果后续启用 R8，需要重新验证 ZXing、下载服务和 WebView 反射相关代码。
 10. **debug/release 签名不同**：不能互相覆盖安装；卸载会清 WebView localStorage，需要重新配对。

@@ -31,6 +31,7 @@ from .client import (
     public_files,
     total_size,
 )
+from . import update as update_mod
 from .config import ConfigStore
 from .discovery import DiscoveryService
 from .history import HistoryStore
@@ -58,6 +59,14 @@ MAX_TEXT = 1024 * 1024
 MAX_FILES = 20000
 MAX_FILE_SIZE = 512 * 1024 * 1024 * 1024  # 512 GiB
 MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024 * 1024  # 2 TiB
+
+ACTIVE_TRANSFER_STATUSES = (
+    "waiting",
+    "pending",
+    "active",
+    "uploading",
+    "verifying",
+)
 
 
 class ApiError(Exception):
@@ -105,6 +114,7 @@ class IncomingSession:
     transfer_id: str
     entry_id: str
     cancel_requested: bool = False
+    active_handlers: set[Any] = field(default_factory=set)
 
 
 @dataclass
@@ -126,6 +136,7 @@ class WebSession:
     created: float
     last_seen: float
     ip: str
+    client: str = "web"
     connected: bool = False
 
 
@@ -182,6 +193,7 @@ class AsterNode:
         self._pair_attempts: dict[str, list[float]] = {}
         self._offer_cancel: dict[str, threading.Event] = {}
         self._offer_sockets: dict[str, set[Any]] = {}
+        self._cancel_events: dict[str, threading.Event] = {}
 
         self.history = HistoryStore(store.history_path)
         self.discovery: Optional[DiscoveryService] = None
@@ -405,6 +417,7 @@ class AsterNode:
                     "last_seen": ws.last_seen,
                     "created": ws.created,
                     "device_type": "web",
+                    "client": ws.client,
                 }
                 for ws in self.web_sessions.values()
             ]
@@ -512,6 +525,8 @@ class AsterNode:
                 ),
                 "request_timeout": self.config.request_timeout,
                 "version": VERSION,
+                "update_url": update_mod.UPDATE_URL,
+                "download_page": update_mod.DOWNLOAD_PAGE,
             },
             "pair_url": self.pair_url(),
             "web_url": self.web_url(https=False),
@@ -530,6 +545,7 @@ class AsterNode:
         state["web"] = {
             "id": ws.id,
             "name": ws.name,
+            "client": ws.client,
             "paired": True,
             "online": True,
         }
@@ -545,6 +561,7 @@ class AsterNode:
             "id",
             "alias",
             "device_type",
+            "client",
             "version",
             "platform",
             "fingerprint",
@@ -917,6 +934,41 @@ class AsterNode:
         except Exception:
             pass
 
+    def _cancel_session(self, session: IncomingSession, reason: str = "已取消") -> None:
+        """取消一个接收会话：关闭正在上传的连接，清理半成品。"""
+        with self.lock:
+            if session.status in ("completed", "cancelled", "rejected"):
+                return
+            session.cancel_requested = True
+            session.status = "cancelled"
+            session.updated = time.time()
+            handlers = list(session.active_handlers)
+            for pending in self.pending.values():
+                if pending.session is session:
+                    pending.decision = False
+                    pending.event.set()
+            self._set_transfer_status(session.transfer_id, "cancelled", reason)
+        for handler in handlers:
+            try:
+                handler.close_connection = True
+                handler.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                handler.connection.close()
+            except OSError:
+                pass
+        for item in session.files.values():
+            try:
+                if item.part_path.exists():
+                    item.part_path.unlink()
+            except OSError:
+                pass
+        try:
+            shutil.rmtree(self.store.tmp_dir / session.id, ignore_errors=True)
+        except Exception:
+            pass
+
     def _complete_session(self, session: IncomingSession) -> None:
         with self.lock:
             if session.status in ("completed", "rejected", "cancelled"):
@@ -943,6 +995,9 @@ class AsterNode:
         if accepted and pending.decision:
             self._accept_session(session)
             return True
+        if session.cancel_requested or session.status == "cancelled":
+            self._cancel_session(session, "已取消")
+            return False
         self._reject_session(session, "等待确认超时" if not accepted else "对方拒绝了传输")
         return False
 
@@ -1083,52 +1138,73 @@ class AsterNode:
             if length < 0 or f.received + length > f.size:
                 raise ApiError(413, "上传长度超出声明大小", {"received": f.received})
             f.status = "uploading"
-        ensure_dir(f.part_path.parent)
-        mode = "r+b" if offset > 0 else "wb"
-        if offset > 0 and not f.part_path.exists():
-            with self.lock:
-                f.received = 0
-                f.status = "pending"
-            raise ApiError(409, "续传分片不存在，请从 0 开始", {"received": 0})
-        remaining = length
-        try:
-            with open(f.part_path, mode) as fh:
-                if offset > 0:
-                    fh.seek(offset)
-                while remaining > 0:
-                    if session.cancel_requested:
-                        raise ApiError(410, "传输已取消")
-                    chunk = handler.rfile.read(min(256 * 1024, remaining))
-                    if not chunk:
-                        raise ConnectionError("客户端提前断开")
-                    fh.write(chunk)
-                    remaining -= len(chunk)
-                    with self.lock:
-                        f.received += len(chunk)
-                        f.updated = time.time()
-                        current = sum(x.received for x in session.files.values())
-                    self._progress(session.transfer_id, current, f.name)
-                fh.flush()
-        except (ConnectionError, BrokenPipeError, OSError) as exc:
-            with self.lock:
-                f.status = "pending"
-                session.updated = time.time()
-            LOG.info("上传中断 %s：%s", f.name, exc)
-            raise ApiError(400, "上传中断，可从断点继续", {"received": f.received}) from exc
         with self.lock:
-            complete = f.received >= f.size
+            session.active_handlers.add(handler)
+        try:
+            ensure_dir(f.part_path.parent)
+            mode = "r+b" if offset > 0 else "wb"
+            if offset > 0 and not f.part_path.exists():
+                with self.lock:
+                    f.received = 0
+                    f.status = "pending"
+                raise ApiError(409, "续传分片不存在，请从 0 开始", {"received": 0})
+            remaining = length
+            try:
+                with open(f.part_path, mode) as fh:
+                    if offset > 0:
+                        fh.seek(offset)
+                    while remaining > 0:
+                        if session.cancel_requested:
+                            raise ApiError(410, "传输已取消")
+                        chunk = handler.rfile.read(min(256 * 1024, remaining))
+                        if not chunk:
+                            raise ConnectionError("客户端提前断开")
+                        fh.write(chunk)
+                        remaining -= len(chunk)
+                        with self.lock:
+                            f.received += len(chunk)
+                            f.updated = time.time()
+                            current = sum(x.received for x in session.files.values())
+                        self._progress(session.transfer_id, current, f.name)
+                    fh.flush()
+            except (ConnectionError, BrokenPipeError, OSError) as exc:
+                with self.lock:
+                    cancelled = session.cancel_requested or session.status == "cancelled"
+                    f.status = "cancelled" if cancelled else "pending"
+                    session.updated = time.time()
+                LOG.info("上传中断 %s：%s", f.name, exc)
+                if cancelled:
+                    raise ApiError(410, "传输已取消") from exc
+                raise ApiError(400, "上传中断，可从断点继续", {"received": f.received}) from exc
+            with self.lock:
+                if session.cancel_requested or session.status == "cancelled":
+                    f.status = "cancelled"
+                    raise ApiError(410, "传输已取消")
+                complete = f.received >= f.size
+                if complete:
+                    f.status = "verifying"
+                    session.updated = time.time()
+                    self._set_transfer_status(session.transfer_id, "verifying")
             if complete:
-                f.status = "verifying"
-                session.updated = time.time()
-                self._set_transfer_status(session.transfer_id, "verifying")
-        if complete:
-            self._progress(session.transfer_id, sum(x.received for x in session.files.values()), f.name)
-        return {
-            "received": f.received,
-            "size": f.size,
-            "complete": complete,
-            "needs_verify": complete,
-        }
+                self._progress(session.transfer_id, sum(x.received for x in session.files.values()), f.name)
+            return {
+                "received": f.received,
+                "size": f.size,
+                "complete": complete,
+                "needs_verify": complete,
+            }
+        finally:
+            with self.lock:
+                session.active_handlers.discard(handler)
+            if session.cancel_requested:
+                try:
+                    f.part_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                try:
+                    shutil.rmtree(self.store.tmp_dir / session.id, ignore_errors=True)
+                except Exception:
+                    pass
 
     def handle_complete(self, body: dict[str, Any]) -> dict[str, Any]:
         session = self._get_session(str(body.get("session_id") or ""))
@@ -1292,6 +1368,9 @@ class AsterNode:
             status="waiting",
         )
         tid = transfer["id"]
+        event = cancel_event or threading.Event()
+        with self.lock:
+            self._cancel_events[tid] = event
         use_tls, target_port = self._peer_endpoint(peer, force_tls)
         client = PeerClient(
             str(peer.get("ip")),
@@ -1303,6 +1382,8 @@ class AsterNode:
         session_token = ""
         tokens: dict[str, str] = {}
         try:
+            if event.is_set():
+                raise CancelledError()
             resp = client.request_transfer(
                 self.device_info(),
                 public_files(files),
@@ -1315,9 +1396,11 @@ class AsterNode:
             tokens = {str(k): str(v) for k, v in (resp.get("tokens") or {}).items()}
             if not session_id or (files and len(tokens) != len(files)):
                 raise PeerError(0, "对方返回的会话信息不完整")
+            if event.is_set():
+                raise CancelledError()
             self._set_transfer_status(tid, "active")
             for idx, f in enumerate(files):
-                if cancel_event and cancel_event.is_set():
+                if event.is_set():
                     raise CancelledError()
                 token = tokens.get(str(f["id"]))
                 if not token:
@@ -1332,7 +1415,7 @@ class AsterNode:
                     token,
                     tid,
                     base,
-                    cancel_event,
+                    event,
                 )
                 self._set_file_status(tid, str(f["id"]), "completed", int(f["size"]))
                 self._progress(tid, base + int(f["size"]), f["name"])
@@ -1358,6 +1441,9 @@ class AsterNode:
         except Exception as exc:
             self._set_transfer_status(tid, "failed", f"发送失败：{exc}")
             return self._public_transfer(self.transfers.get(tid, {}))
+        finally:
+            with self.lock:
+                self._cancel_events.pop(tid, None)
 
     def _upload_one(
         self,
@@ -1466,6 +1552,7 @@ class AsterNode:
                 "id": f"web:{ws.id}",
                 "alias": ws.name,
                 "device_type": "web",
+                "client": ws.client,
                 "ip": ws.ip,
                 "port": 0,
             },
@@ -1504,21 +1591,26 @@ class AsterNode:
             attempts.append(now)
             self._pair_attempts[ip] = attempts
 
-    def pair_web(self, code: str, name: str, ua: str, ip: str) -> dict[str, Any]:
+    def pair_web(
+        self, code: str, name: str, ua: str, ip: str, client: str = "web"
+    ) -> dict[str, Any]:
         self._rate_limit_pair(ip)
         if self.config.web_pairing and not hmac.compare_digest(
             str(code or ""), str(self.config.web_pair_code)
         ):
             raise ApiError(403, "配对码错误")
+        client = "apk" if str(client or "").lower() == "apk" else "web"
+        fallback = "手机" if client == "apk" else "网页端设备"
         token = secrets.token_urlsafe(32)
         ws = WebSession(
             id=uuid.uuid4().hex,
-            name=sanitize_name(str(name or "手机网页"))[:40],
+            name=sanitize_name(str(name or fallback))[:40],
             ua=str(ua or "")[:300],
             token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
             created=time.time(),
             last_seen=time.time(),
             ip=ip,
+            client=client,
             connected=False,
         )
         with self.lock:
@@ -1531,7 +1623,7 @@ class AsterNode:
         return {
             "token": token,
             "web_id": ws.id,
-            "web": {"id": ws.id, "name": ws.name},
+            "web": {"id": ws.id, "name": ws.name, "client": ws.client},
             "device": self.device_info(),
             "state": self.web_state(ws),
         }
@@ -1557,6 +1649,7 @@ class AsterNode:
             "id": f"web:{ws.id}",
             "alias": ws.name,
             "device_type": "web",
+            "client": ws.client,
             "version": VERSION,
             "platform": ws.ua.split(")")[0][:60] if ws.ua else "Web",
             "ip": ip or ws.ip,
@@ -1582,6 +1675,7 @@ class AsterNode:
             "id": f"web:{ws.id}",
             "alias": ws.name,
             "device_type": "web",
+            "client": ws.client,
             "ip": ws.ip,
             "port": 0,
         }
@@ -1635,7 +1729,12 @@ class AsterNode:
                         "id": uuid.uuid4().hex,
                         "text": offer.text,
                         "direction": "out",
-                        "peer": {"id": f"web:{ws.id}", "alias": ws.name, "device_type": "web"},
+                        "peer": {
+                            "id": f"web:{ws.id}",
+                            "alias": ws.name,
+                            "device_type": "web",
+                            "client": ws.client,
+                        },
                         "created": time.time(),
                         "via": "web",
                     }
@@ -1669,6 +1768,140 @@ class AsterNode:
             except OSError:
                 pass
         return {"ok": True, "status": "cancelled"}
+
+    # ------------------------------------------------------------------
+    # 任务取消 / 网页设备命名 / 检查更新
+    # ------------------------------------------------------------------
+    def cancel_transfer(self, transfer_id: str) -> dict[str, Any]:
+        """按任务 ID 取消；覆盖发送、接收、网页 offer 和等待确认。"""
+        tid = str(transfer_id or "")
+        with self.lock:
+            transfer = self.transfers.get(tid)
+            if not transfer:
+                raise ValueError("任务不存在或已结束")
+            status = str(transfer.get("status") or "")
+            if status not in ACTIVE_TRANSFER_STATUSES:
+                return self._public_transfer(transfer)
+            event = self._cancel_events.get(tid)
+            if event is not None:
+                event.set()
+            offer = next((o for o in self.offers.values() if o.transfer_id == tid), None)
+            session = self.sessions.get(tid)
+            if session is None:
+                session = next(
+                    (s for s in self.sessions.values() if s.transfer_id == tid), None
+                )
+        if offer is not None:
+            sockets: list[Any] = []
+            with self.lock:
+                offer.status = "cancelled"
+                offer.updated = time.time()
+                self._offer_cancel.setdefault(offer.id, threading.Event()).set()
+                sockets = list(self._offer_sockets.get(offer.id, set()))
+            for conn in sockets:
+                try:
+                    conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+            self._set_transfer_status(tid, "cancelled", "已取消")
+        elif session is not None:
+            self._cancel_session(session, "已取消")
+        else:
+            self._set_transfer_status(tid, "cancelled", "已取消")
+        with self.lock:
+            transfer = self.transfers.get(tid) or {}
+            return self._public_transfer(transfer)
+
+    def cancel_all_transfers(self) -> list[dict[str, Any]]:
+        with self.lock:
+            ids = [
+                tid
+                for tid, transfer in self.transfers.items()
+                if str(transfer.get("status") or "") in ACTIVE_TRANSFER_STATUSES
+            ]
+        results: list[dict[str, Any]] = []
+        for tid in ids:
+            try:
+                results.append(self.cancel_transfer(tid))
+            except Exception:
+                LOG.debug("取消任务失败：%s", tid, exc_info=True)
+        return results
+
+    def _web_owns_transfer(self, ws: WebSession, transfer_id: str) -> bool:
+        tid = str(transfer_id or "")
+        peer_id = f"web:{ws.id}"
+        with self.lock:
+            if any(o.transfer_id == tid and o.web_id == ws.id for o in self.offers.values()):
+                return True
+            if any(
+                s.transfer_id == tid and s.web_id == ws.id
+                for s in self.sessions.values()
+            ):
+                return True
+            transfer = self.transfers.get(tid)
+            if transfer and str((transfer.get("peer") or {}).get("id") or "") == peer_id:
+                return True
+        return False
+
+    def cancel_web_transfer(self, ws: WebSession, transfer_id: str) -> dict[str, Any]:
+        if not self._web_owns_transfer(ws, transfer_id):
+            raise ApiError(403, "这个任务不属于当前网页设备")
+        try:
+            return self.cancel_transfer(transfer_id)
+        except ValueError as exc:
+            raise ApiError(404, str(exc)) from exc
+
+    def cancel_web_transfers(self, ws: WebSession) -> list[dict[str, Any]]:
+        with self.lock:
+            ids: set[str] = set()
+            peer_id = f"web:{ws.id}"
+            for tid, transfer in self.transfers.items():
+                if str(transfer.get("status") or "") not in ACTIVE_TRANSFER_STATUSES:
+                    continue
+                if str((transfer.get("peer") or {}).get("id") or "") == peer_id:
+                    ids.add(tid)
+            for offer in self.offers.values():
+                if offer.web_id == ws.id:
+                    transfer = self.transfers.get(offer.transfer_id) or {}
+                    if str(transfer.get("status") or "") in ACTIVE_TRANSFER_STATUSES:
+                        ids.add(offer.transfer_id)
+            for session in self.sessions.values():
+                if session.web_id == ws.id:
+                    transfer = self.transfers.get(session.transfer_id) or {}
+                    if str(transfer.get("status") or "") in ACTIVE_TRANSFER_STATUSES:
+                        ids.add(session.transfer_id)
+        results: list[dict[str, Any]] = []
+        for tid in ids:
+            try:
+                results.append(self.cancel_transfer(tid))
+            except Exception:
+                LOG.debug("取消网页任务失败：%s", tid, exc_info=True)
+        return results
+
+    def rename_web_session(self, ws: WebSession, name: str) -> dict[str, Any]:
+        cleaned = sanitize_name(str(name or "")).strip()[:40]
+        if not cleaned:
+            raise ApiError(400, "设备名称不能为空")
+        peer_id = f"web:{ws.id}"
+        with self.lock:
+            ws.name = cleaned
+            ws.last_seen = time.time()
+            for transfer in self.transfers.values():
+                peer = transfer.get("peer") or {}
+                if str(peer.get("id") or "") == peer_id:
+                    peer["alias"] = cleaned
+            for session in self.sessions.values():
+                if session.web_id == ws.id:
+                    session.peer["alias"] = cleaned
+        LOG.info("网页设备已改名：%s", cleaned)
+        return {"ok": True, "web": {"id": ws.id, "name": cleaned, "client": ws.client}}
+
+    def check_update(self, force: bool = False) -> dict[str, Any]:
+        return update_mod.check_update(force=force)
 
     def serve_offer_download(
         self,
@@ -1904,7 +2137,7 @@ class AsterHandler(BaseHTTPRequestHandler):
             data = {"error": exc.message}
             data.update(exc.data or {})
             self._send_json(data, exc.status)
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return
         except Exception as exc:
             LOG.exception("请求处理失败 %s %s", method, path)
@@ -1941,7 +2174,7 @@ class AsterHandler(BaseHTTPRequestHandler):
             if self.command != "HEAD":
                 self.wfile.write(body)
             self.close_connection = True
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             self.close_connection = True
 
     def _web_token(self, query: dict[str, list[str]], *, allow_query: bool = True) -> Optional[WebSession]:
@@ -2025,6 +2258,12 @@ class AsterHandler(BaseHTTPRequestHandler):
             self._send_json(result)
             return
 
+        # -- 检查更新（不需要网页配对） ---------------------------------
+        if method == "GET" and path == "/api/v1/update":
+            force = (query.get("force") or [""])[0] in ("1", "true", "yes")
+            self._send_json(node.check_update(force=force))
+            return
+
         # -- 网页配对 ----------------------------------------------------
         if method == "POST" and path == "/api/v1/web/pair":
             body = self._read_json()
@@ -2034,6 +2273,7 @@ class AsterHandler(BaseHTTPRequestHandler):
                 str(body.get("name") or ""),
                 ua,
                 self.client_address[0],
+                str(body.get("client") or "web"),
             )
             self._send_json(result)
             return
@@ -2065,6 +2305,21 @@ class AsterHandler(BaseHTTPRequestHandler):
             self._require_web(query)
             body = self._read_json()
             self._send_json(node.update_settings(body))
+            return
+        if method == "POST" and path == "/api/v1/web/name":
+            ws = self._require_web(query)
+            body = self._read_json()
+            self._send_json(node.rename_web_session(ws, str(body.get("name") or "")))
+            return
+        if method == "POST" and path == "/api/v1/web/transfers/cancel-all":
+            ws = self._require_web(query)
+            self._send_json({"ok": True, "cancelled": node.cancel_web_transfers(ws)})
+            return
+
+        m = re.match(r"^/api/v1/web/transfers/([0-9a-zA-Z_-]+)/cancel$", path)
+        if method == "POST" and m:
+            ws = self._require_web(query)
+            self._send_json({"ok": True, "transfer": node.cancel_web_transfer(ws, m.group(1))})
             return
 
         m = re.match(r"^/api/v1/web/offers/([0-9a-f]+)/respond$", path)

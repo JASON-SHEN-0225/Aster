@@ -2,7 +2,7 @@
    API / SSE / 下载请求永远走网络，绝不缓存。 */
 "use strict";
 
-const CACHE_NAME = "aster-shell-v3-cancel";
+const CACHE_NAME = "aster-shell-v4-3.0.0";
 const BASE = new URL("./", self.location.href);
 const SHELL_PATHS = [
   "./",

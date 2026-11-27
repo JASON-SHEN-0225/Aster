@@ -1,8 +1,8 @@
-﻿; ============================================================================
+; ============================================================================
 ;  Aster · 星流 2.0 —— Windows 安装包（Inno Setup 6）
 ;
 ;  构建：ISCC.exe installer\Aster.iss
-;  产物：installer\dist\Aster-Setup-2.0.0.exe
+;  产物：installer\dist\Aster-Setup-3.0.0.exe
 ;
 ;  设计要点：
 ;   * 固定 AppId，覆盖升级并保留 %APPDATA%\Aster 与 Downloads\Aster
@@ -13,7 +13,7 @@
 
 #define MyAppName "Aster · 星流"
 #ifndef MyAppVersion
-  #define MyAppVersion "2.0.0"
+  #define MyAppVersion "3.0.0"
 #endif
 #define MyAppPublisher "Aster"
 #define MyAppURL "https://github.com/JASON-SHEN-0225/Aster"

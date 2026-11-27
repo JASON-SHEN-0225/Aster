@@ -1,6 +1,6 @@
-# 测试记录（Aster 2.0）
+# 测试记录（Aster 3.0）
 
-测试环境：Windows 11 专业版 10.0.26300、Python 3.10.6、Node 24、PySide6 6.12、Microsoft Edge（Puppeteer 无头驱动，390×844 手机视口）。
+测试环境：Windows 11 专业版 10.0.26300、Python 3.10.6、Node 24、PySide6 6.12、Microsoft Edge（无头 CDP 驱动，390×844 手机视口）、JDK 17、Android SDK 35。
 
 ## 1. 自动化端到端测试
 
@@ -8,7 +8,7 @@
 python -m unittest tests.test_e2e -v
 ```
 
-结果：**10/10 通过，约 12 秒**。
+结果：**14/14 通过，约 16 秒**。
 
 | 用例 | 覆盖点 | 结果 |
 |---|---|---|
@@ -17,12 +17,48 @@ python -m unittest tests.test_e2e -v
 | `test_resume_from_offset` | 只传一半后按 offset 续传、完整性 | 通过 |
 | `test_reject_then_pin` | 手动拒绝、错误 PIN、正确 PIN + 手动接受 | 通过 |
 | `test_web_pair_upload_and_offer_download` | 配对码、手机上传、offer、Range 下载 | 通过 |
+| `test_web_offer_cancel_download` | 手机端取消 offer 下载、服务端状态与关闭流 | 通过 |
+| `test_web_upload_cancel_and_cancel_all` | 上传中取消、取消全部、临时分片清理、410 拒绝续传 | 通过 |
+| `test_web_device_client_and_rename` | APK/网页 client 字段、服务端改名 | 通过 |
+| `test_cancel_transfer_event_registry` | 按任务 ID 取消注册表 | 通过 |
+| `test_update_manifest_and_compare` | 官网 manifest 解析、版本比较、更新判定 | 通过 |
 | `test_discovery_announce` | UDP announce 发现 | 通过 |
 | `test_peer_hello_and_history` | hello 手动连接、历史 | 通过 |
 | `test_text_only_auto_complete` | 纯文本自动完成 | 通过 |
 | `test_https_web_and_peer_transfer` | HTTPS ping/静态页、网页 HTTPS 偏好、HTTPS 对等传输 | 通过 |
 
 另做过端口冲突验证：同一端口第二个 `AsterNode` 会明确报“端口被占用”，不会静默抢占。
+
+## 1.1 Android JVM 单测（3.0）
+
+```powershell
+cd android
+$env:JAVA_HOME="D:\Android\jdk-17"
+.\gradlew.bat :app:testDebugUnitTest
+```
+
+结果：**33 个测试，0 失败**。覆盖原有地址解析/下载文件名，以及新增的设备名清洗与随机回退、分享文件名清洗、版本比较。
+
+## 1.2 桌面 GUI 离屏冒烟
+
+`tools/gui_smoke.py` 在 offscreen 模式下渲染发送/传输/历史/设置/深色 5 张截图；3.0 另用 build 内临时脚本验证了右上角主题滑块、任务级取消与“取消全部”按钮显隐、更新状态卡片和发现新版本提示。
+
+## 1.3 Android 真机回归（2026-11-27）
+
+设备：Xiaomi 17 Pro Max（`2509FPN0BC`），Android 17，1200 × 2608 @480dpi，无线 adb。
+
+结果：
+
+- 从 2.0.0 `adb install -r` 覆盖升级到 3.0.0 成功，签名一致；
+- 启动停在连接页，不自动扫码；动态星标动画正常；
+- 手机网页连接成功，设备名显示 `Xiaomi 17 Pro Max`；
+- 系统分享文本自动填入文本发送框；真实分享 3.26 MB 图片进入确认文件队列；
+- 200 MB 上传 3 秒完成（61.3 MB/s），接收端 SHA-256 一致；
+- 2 GB 上传：通知栏 `2% · 66.8 MB/s`、后台 `66% · 70.5 MB/s`；前台进度/速度/剩余时间/取消按钮正常；接收端 SHA-256 一致（`A7C744C1…EA51`），64.9 MB/s / 32 秒；
+- 退后台传输继续；**发现并修复“从桌面图标回到 App 会跳回连接页并中断上传”**，修复版复测：回到 App 时 31% 继续，随后完成；
+- 未覆盖：小米以外机型、Android 8–12、锁屏/杀进程恢复、通知栏“取消”按钮点击。
+
+真机截图：`docs/screenshots/apk-connect.png`、`apk-share.png`、`apk-transfer.png`、`apk-notification.png`。
 
 ## 2. 手机网页真实浏览器测试
 
@@ -107,15 +143,18 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 | GUI 实际窗口 | `docs/screenshots/gui-window.png` |
 | GUI 发送 | `docs/screenshots/gui-home.png` |
 | GUI 设备选择 | `docs/screenshots/gui-devices.png` |
-| GUI 设置 | `docs/screenshots/gui-settings.png` |
+| GUI 设置/更新 | `docs/screenshots/gui-settings.png` |
 | GUI 深色 | `docs/screenshots/gui-dark.png` |
+| GUI 传输/取消 | `docs/screenshots/gui-transfers.png` |
 | 手机首页 | `docs/screenshots/mobile-home.png` |
-| 手机上传 | `docs/screenshots/mobile-uploading.png` |
+| 手机任务取消 | `docs/screenshots/mobile-transfers.png` |
 | 手机设置 | `docs/screenshots/mobile-settings.png` |
+| 手机更新 | `docs/screenshots/mobile-update.png` |
 | 电脑发来 | `docs/screenshots/mobile-offer.png` |
 | 手机深色 | `docs/screenshots/mobile-dark.png` |
-| 手机接收页 | `docs/screenshots/mobile-receive.png` |
+| APK 连接页/动态星标 | `docs/screenshots/apk-connect.png` |
+| APK 系统分享 | `docs/screenshots/apk-share.png` |
+| APK 传输中 | `docs/screenshots/apk-transfer.png` |
+| APK 后台通知 | `docs/screenshots/apk-notification.png` |
 | 下载取消 | `tests/test_e2e.py::test_web_offer_cancel_download` |
-| 手机文本页 | `docs/screenshots/mobile-text.png` |
-| 下载进度 | `docs/screenshots/mobile-offer-progress.png` |
 | LocalSend 风格设计稿 | `docs/design/mobile-localsend-design.png` |

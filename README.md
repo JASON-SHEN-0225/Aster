@@ -1,4 +1,4 @@
-# Aster · 星流 2.0
+# Aster · 星流 3.0
 
 **局域网文件流转，快而克制。**
 
@@ -17,9 +17,9 @@ Aster 是一个自研局域网文件互传工具，当前只保留两个端：
 
 | 文件 | 说明 |
 |---|---|
-| `Aster-Setup-2.0.0.exe` | Windows 安装包，含防火墙规则与资源管理器右键 |
+| `Aster-Setup-3.0.0.exe` | Windows 安装包，含防火墙规则与资源管理器右键 |
 | `Aster.exe` | 免安装桌面端 |
-| `Aster-2.0.0-release.apk` | Android APK |
+| `Aster-3.0.0-release.apk` | Android APK |
 | `SHA256SUMS.txt` | 下载校验值 |
 
 从源码运行或自行打包见 [开发与构建](#开发与构建)。
@@ -35,6 +35,12 @@ Aster 是一个自研局域网文件互传工具，当前只保留两个端：
 - 实时速度、进度、平均速度、历史
 - 浅色 / 深色主题、托盘、开机自启
 - 手机网页：LocalSend 风格布局，与桌面蓝/薄荷配色一致
+- 手机 APK：系统分享/微信“用其他应用打开”直接加入待发送队列
+- APK 设备命名（系统名优先，可改名），网页端显示“网页端设备”
+- 电脑端右上角深浅色滑块，一键切换
+- 传输任务取消 / 取消全部，覆盖发送、接收和等待确认
+- APK 退后台继续传输，通知中心显示进度、速度并支持取消
+- 桌面端与 APK 启动自动检查更新，设置内可手动检查
 
 ## 预览
 
@@ -78,7 +84,7 @@ Aster/
 
 ### 安装
 
-从 [Releases](https://github.com/JASON-SHEN-0225/Aster/releases/latest) 下载 `Aster-Setup-2.0.0.exe`，双击安装，UAC 点「是」。安装包**只包含 `Aster.exe`**（开发文档、截图、启动脚本都不打包，也没有组件选择页）。安装器会：
+从 [Releases](https://github.com/JASON-SHEN-0225/Aster/releases/latest) 下载 `Aster-Setup-3.0.0.exe`，双击安装，UAC 点「是」。安装包**只包含 `Aster.exe`**（开发文档、截图、启动脚本都不打包，也没有组件选择页）。安装器会：
 
 - 安装到 `C:\Program Files\Aster`
 - 添加 Windows 防火墙规则：TCP 47820/47821、UDP 47820
@@ -94,7 +100,8 @@ Aster/
 2. 打开 GUI，点左下角「二维码」。
 3. 手机扫码，或访问 `http://电脑IP:47820/?pair=配对码`。
 4. 首次进入自动配对；HTTPS 需要接受自签名证书。
-5. Android APK 启动默认直接进入扫码页；取消扫码会停在连接页，可手动输入电脑 IP。桌面端更新 exe 后不需要重装 APK，重新扫码即可。
+5. Android APK 启动停在连接页；扫码或点「连接」进入网页。桌面端更新 exe 后不需要重装 APK，重新扫码即可。
+6. APK 支持从微信/文件管理器分享文件到 Aster，连接后自动加入手机端待发送队列。
 
 ### 资源管理器右键
 
@@ -144,7 +151,8 @@ powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
 - `build.ps1` 只构建桌面端 `Aster.exe`，产物在根目录与 `dist\`
 - 安装包脚本在 `installer\`，产物写入 `installer\dist\`（不提交）
 - APK 构建与已知限制见 [`docs/ANDROID.md`](docs/ANDROID.md)；release 签名读取 `android/keystore.properties`（不提交，模板见 [`android/keystore.properties.example`](android/keystore.properties.example)）
-- 测试：`python -m unittest tests.test_e2e -v`（10 个端到端用例，约 12 秒）
+- 测试：`python -m unittest tests.test_e2e -v`（14 个端到端用例，约 25 秒）
+- APK 真机：Xiaomi 17 Pro Max / Android 17 实测 2 GB 后台上传，平均 64.9 MB/s；其他厂商与旧系统未覆盖
 - 本机有系统代理时先设置 `$env:NO_PROXY="127.0.0.1,localhost"`，否则网页用例会走代理超时
 - GitHub Actions 会在 Windows 上运行同一套测试，并检查官网的 i18n 与静态资源引用
 
@@ -153,9 +161,10 @@ powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
 - Windows 11 旧式右键菜单默认收在「显示更多选项」
 - 免安装版若不安装防火墙规则，手机可能无法发现/访问
 - APK 是 WebView 壳，电脑端 Aster 必须运行
-- APK 启动默认进扫码页，首次会请求相机权限；取消扫码后停在连接页，可手动输入地址
+- APK 启动停在连接页，不自动扫码；扫码按钮可随时调用相机
 - HTTPS 为自签名证书，首次需手动接受
 - 手机端已切换到 LocalSend 风格布局，配色与桌面端统一
+- APK 后台传输依赖系统前台服务与 WebView，极端省电策略下仍可能暂停
 
 ## 作者
 

@@ -20,8 +20,8 @@ android {
         applicationId = "com.aster.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20000
-        versionName = "2.0.0"
+        versionCode = 30000
+        versionName = "3.0.0"
     }
 
     signingConfigs {

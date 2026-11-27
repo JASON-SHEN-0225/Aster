@@ -9,13 +9,12 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import QPropertyAnimation, QSize, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QIcon, QPalette
+from PySide6.QtCore import QPropertyAnimation, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
-    QComboBox,
     QFileDialog,
     QFrame,
     QGraphicsOpacityEffect,
@@ -60,6 +59,7 @@ from .widgets import (
     GradientTitle,
     HeroLogo,
     SchemeSwitch,
+    ThemeSwitch,
     Toast,
     TransferCard,
 )
@@ -84,6 +84,8 @@ STATUS_TEXT = {
 
 
 class MainWindow(QMainWindow):
+    update_checked = Signal(dict)
+
     def __init__(self, node: AsterNode, *, minimized: bool = False):
         super().__init__()
         self.node = node
@@ -100,7 +102,6 @@ class MainWindow(QMainWindow):
         self.transfer_signature: tuple[Any, ...] = ()
         self.history_counter = 0
         self.send_busy = False
-        self.cancel_event: Optional[threading.Event] = None
         self.send_thread: Optional[threading.Thread] = None
         self.send_result: Optional[dict[str, Any]] = None
         self.send_summary = ""
@@ -111,6 +112,9 @@ class MainWindow(QMainWindow):
         self._notified_transfers: set[str] = set()
         self._minimized = minimized
         self._loading_settings = False
+        self._update_busy = False
+        self._update_url = ""
+        self._update_checked = False
 
         self.setWindowTitle(f"{APP_NAME} · {APP_CN}")
         self.setWindowIcon(app_icon())
@@ -122,7 +126,9 @@ class MainWindow(QMainWindow):
         self._apply_icons()
         self._refresh()
         self._start_timers()
+        self.update_checked.connect(self._apply_update_result)
         QTimer.singleShot(120, self._after_show)
+        QTimer.singleShot(1800, lambda: self.check_updates(manual=False))
 
     # ------------------------------------------------------------------
     # UI 构建
@@ -264,8 +270,11 @@ class MainWindow(QMainWindow):
         refresh.setToolTip("搜索附近设备")
         refresh.clicked.connect(self.search_devices)
         self.refresh_btn = refresh
+        self.theme_switch = ThemeSwitch(self.theme)
+        self.theme_switch.changed.connect(self.toggle_theme)
         topbar.addWidget(self.conn_pill)
         topbar.addWidget(refresh)
+        topbar.addWidget(self.theme_switch)
         content_layout.addLayout(topbar)
 
         self.stack = QStackedWidget()
@@ -444,6 +453,14 @@ class MainWindow(QMainWindow):
         head.addWidget(label)
         head.addWidget(self.transfers_note)
         head.addStretch(1)
+        self.cancel_all_btn = QPushButton("取消全部")
+        self.cancel_all_btn.setObjectName("Ghost")
+        self.cancel_all_btn.setFixedHeight(30)
+        self.cancel_all_btn.setStyleSheet("padding: 4px 11px; font-size: 11.5px;")
+        self.cancel_all_btn.setToolTip("取消所有进行中的传输")
+        self.cancel_all_btn.clicked.connect(self._cancel_all_transfers)
+        self.cancel_all_btn.hide()
+        head.addWidget(self.cancel_all_btn)
         layout.addLayout(head)
         self.transfers_container = QWidget()
         self.transfers_layout = QVBoxLayout(self.transfers_container)
@@ -587,18 +604,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(card)
 
         # 外观
-        card, box = self._settings_card("外观与启动", "浅色或深色；关闭窗口默认驻留托盘")
-        theme_row = QHBoxLayout()
-        theme_row.addWidget(QLabel("主题"))
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItem("浅色", "light")
-        self.theme_combo.addItem("深色", "dark")
-        self.theme_combo.setFixedWidth(130)
-        self.theme_combo.currentIndexChanged.connect(self.theme_changed)
-        theme_row.addWidget(self.theme_combo)
-        self._style_combo_popup()
-        theme_row.addStretch(1)
-        box.addLayout(theme_row)
+        card, box = self._settings_card("外观与启动", "深浅色可在窗口右上角一键切换；关闭窗口默认驻留托盘")
         self.startup_check = QCheckBox("开机自动启动")
         self.startup_check.clicked.connect(self.toggle_startup)
         box.addWidget(self.startup_check)
@@ -615,10 +621,27 @@ class MainWindow(QMainWindow):
         layout.addWidget(card)
 
         # 关于
-        card, box = self._settings_card("关于")
-        about = QLabel(f"{APP_NAME} · {APP_CN}  v{VERSION}")
-        about.setObjectName("Muted")
-        box.addWidget(about)
+        card, box = self._settings_card("关于与更新")
+        self.about_label = QLabel(f"{APP_NAME} · {APP_CN}  v{VERSION}")
+        self.about_label.setObjectName("Muted")
+        box.addWidget(self.about_label)
+        update_row = QHBoxLayout()
+        self.update_status = QLabel("点击检查更新，获取最新版本")
+        self.update_status.setObjectName("Muted")
+        self.update_status.setWordWrap(True)
+        self.update_btn = QPushButton("检查更新")
+        self.update_btn.setObjectName("Soft")
+        self.update_btn.setFixedHeight(34)
+        self.update_btn.clicked.connect(lambda: self.check_updates(manual=True))
+        self.update_download = QPushButton("下载新版")
+        self.update_download.setObjectName("Primary")
+        self.update_download.setFixedHeight(34)
+        self.update_download.hide()
+        self.update_download.clicked.connect(self.open_update_page)
+        update_row.addWidget(self.update_status, 1)
+        update_row.addWidget(self.update_btn)
+        update_row.addWidget(self.update_download)
+        box.addLayout(update_row)
         github = QLabel(
             f'GitHub&nbsp;&nbsp;<a style="color:{p["accent"]}; text-decoration:none;" '
             'href="https://github.com/JASON-SHEN-0225/Aster">JASON-SHEN-0225/Aster</a>'
@@ -728,13 +751,22 @@ class MainWindow(QMainWindow):
             items.append(("peer", peer))
         for ws in webs:
             item = dict(ws)
+            client = str(ws.get("client") or "web").lower()
+            item["client"] = client
             item["id"] = f"web:{ws.get('id')}"
-            item["alias"] = ws.get("name") or "手机网页"
+            item["alias"] = ws.get("name") or ("手机" if client == "apk" else "网页端设备")
             item["device_type"] = "web"
             item["_web_id"] = ws.get("id")
             items.append(("web", item))
         signature = tuple(
-            (kind, str(obj.get("id")), str(obj.get("alias") or obj.get("name")), obj.get("online"), obj.get("ip"))
+            (
+                kind,
+                str(obj.get("id")),
+                str(obj.get("alias") or obj.get("name")),
+                obj.get("online"),
+                obj.get("ip"),
+                obj.get("client"),
+            )
             for kind, obj in items
         )
         if signature == self.device_signature:
@@ -778,61 +810,13 @@ class MainWindow(QMainWindow):
                 self.target_label.setText("未选择设备")
         self._refresh_target_label()
 
-    def _style_combo_popup(self) -> None:
-        """Qt 的 ComboBox 弹层是独立窗口，单独下发样式，去掉原生黑边。"""
-        if not hasattr(self, "theme_combo"):
-            return
-        p = palette(self.theme)
-        view = self.theme_combo.view()
-        view.setFrameShape(QFrame.Shape.NoFrame)
-        palette_view = view.palette()
-        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
-            palette_view.setColor(group, QPalette.ColorRole.Highlight, QColor(p["accent_soft"]))
-            palette_view.setColor(group, QPalette.ColorRole.HighlightedText, QColor(p["accent"]))
-        view.setPalette(palette_view)
-        self.theme_combo.setPalette(palette_view)
-        app_palette = QApplication.instance().palette()
-        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
-            app_palette.setColor(group, QPalette.ColorRole.Highlight, QColor(p["accent_soft"]))
-            app_palette.setColor(group, QPalette.ColorRole.HighlightedText, QColor(p["accent"]))
-        QApplication.instance().setPalette(app_palette)
-        view.setStyleSheet(
-            f"""
-            QListView {{
-                background: {p['card']};
-                border: 1px solid {p['border_strong']};
-                border-radius: 10px;
-                padding: 5px;
-                outline: 0;
-                selection-background-color: {p['accent_soft']};
-                selection-color: {p['accent']};
-            }}
-            QListView::item {{
-                min-height: 30px;
-                padding: 6px 10px;
-                border-radius: 6px;
-                color: {p['text2']};
-            }}
-            QListView::item:hover {{
-                background: {p['bg_alt']};
-                color: {p['text']};
-            }}
-            QListView::item:selected {{
-                background: {p['accent_soft']};
-                color: {p['accent']};
-            }}
-            """
-        )
-        popup = view.window()
-        popup.setPalette(palette_view)
-        popup.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        popup.setAutoFillBackground(False)
-        popup.setStyleSheet("background: transparent; border: 0;")
-
     def _refresh_web_state(self, state: dict[str, Any]) -> None:
         online = [w for w in state.get("web_sessions", []) if w.get("online")]
         if online:
-            names = "、".join(str(w.get("name") or "手机网页") for w in online[:2])
+            names = "、".join(
+                str(w.get("name") or ("手机" if str(w.get("client") or "web").lower() == "apk" else "网页端设备"))
+                for w in online[:2]
+            )
             self.web_state.setText(f"{len(online)} 个在线 · {names}")
         else:
             self.web_state.setText("等待手机连接")
@@ -879,6 +863,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self.transfers_note.setText(f"{active} 个进行中" if active else "")
+        self.cancel_all_btn.setVisible(active > 0)
 
     def _notify_transfers(self, state: dict[str, Any]) -> None:
         if not self.tray:
@@ -921,7 +906,15 @@ class MainWindow(QMainWindow):
             values = [
                 format_time(item.get("started_at")),
                 "发送" if item.get("direction") == "out" else "接收",
-                "网页" if item.get("via") == "web" else "电脑",
+                (
+                    "电脑"
+                    if item.get("via") != "web"
+                    else (
+                        "APK"
+                        if str((item.get("peer") or {}).get("client") or "").lower() == "apk"
+                        else "网页"
+                    )
+                ),
                 str((item.get("peer") or {}).get("alias") or "-"),
                 str(content),
                 STATUS_TEXT.get(str(item.get("status")), str(item.get("status") or "-")),
@@ -958,9 +951,6 @@ class MainWindow(QMainWindow):
             self.auto_check.setChecked(bool(self.config.auto_accept))
             self.pin_edit.setText(self.config.pin)
             self.pair_label.setText(self.config.web_pair_code if self.config.web_pairing else "已关闭")
-            idx = self.theme_combo.findData(self.theme)
-            if idx >= 0 and self.theme_combo.currentIndex() != idx:
-                self.theme_combo.setCurrentIndex(idx)
             self.startup_check.setChecked(self._startup_enabled())
         finally:
             self._loading_settings = False
@@ -1002,7 +992,10 @@ class MainWindow(QMainWindow):
     def _refresh_target_label(self) -> None:
         if self.target:
             name = self.target.get("alias") or self.target.get("name") or "设备"
-            kind = "手机网页" if self.target_kind == "web" else "电脑"
+            if self.target_kind == "web":
+                kind = "APK 手机" if str(self.target.get("client") or "web") == "apk" else "网页端"
+            else:
+                kind = "电脑"
             self.target_label.setText(f"目标：{name}（{kind}）")
         else:
             self.target_label.setText("未选择设备")
@@ -1202,7 +1195,6 @@ class MainWindow(QMainWindow):
         self.send_busy = True
         self.send_result = None
         self.send_summary = text if text else f"{len(paths)} 项"
-        self.cancel_event = threading.Event()
 
         def work() -> None:
             try:
@@ -1211,7 +1203,6 @@ class MainWindow(QMainWindow):
                     paths,
                     text=text,
                     pin=pin,
-                    cancel_event=self.cancel_event,
                 )
             except Exception as exc:
                 self.send_result = {
@@ -1233,7 +1224,6 @@ class MainWindow(QMainWindow):
             return
         result = self.send_result or {}
         self.send_busy = False
-        self.cancel_event = None
         self.send_thread = None
         self.send_result = None
         self._refresh_send_button()
@@ -1253,9 +1243,20 @@ class MainWindow(QMainWindow):
         self._refresh()
 
     def _cancel_transfer(self, transfer_id: str) -> None:
-        if self.cancel_event:
-            self.cancel_event.set()
-            self.toast("已请求取消")
+        try:
+            self.node.cancel_transfer(transfer_id)
+            self.toast("已取消任务")
+        except Exception as exc:
+            self.toast(str(exc) or "取消失败")
+        self._refresh()
+
+    def _cancel_all_transfers(self) -> None:
+        try:
+            results = self.node.cancel_all_transfers()
+            self.toast(f"已取消 {len(results)} 个任务" if results else "没有可取消的任务")
+        except Exception as exc:
+            self.toast(str(exc) or "取消失败")
+        self._refresh()
 
     # ------------------------------------------------------------------
     # 接收确认
@@ -1333,11 +1334,91 @@ class MainWindow(QMainWindow):
         self.pair_label.setText(code)
         self.toast(f"新的配对码：{code}")
 
-    def theme_changed(self) -> None:
-        if self._loading_settings:
+    def toggle_theme(self, dark: bool) -> None:
+        self.apply_theme("dark" if dark else "light")
+
+    # ------------------------------------------------------------------
+    # 检查更新
+    # ------------------------------------------------------------------
+    def check_updates(self, manual: bool = False) -> None:
+        if self._update_busy:
             return
-        theme = str(self.theme_combo.currentData() or "light")
-        self.apply_theme(theme)
+        if not manual and self._update_checked:
+            return
+        self._update_busy = True
+        self.update_btn.setEnabled(False)
+        if manual:
+            self.update_status.setText("正在检查更新…")
+
+        def work() -> None:
+            try:
+                result = self.node.check_update(force=manual)
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "error": str(exc),
+                    "current": {"desktop": VERSION},
+                    "latest": None,
+                }
+            result["_manual"] = manual
+            self.update_checked.emit(result)
+
+        threading.Thread(target=work, name="aster-update-check", daemon=True).start()
+
+    def _apply_update_result(self, result: dict[str, Any]) -> None:
+        self._update_busy = False
+        self._update_checked = True
+        self.update_btn.setEnabled(True)
+        manual = bool(result.get("_manual"))
+        latest = result.get("latest") if isinstance(result.get("latest"), dict) else None
+        desktop = (latest or {}).get("desktop") if isinstance(latest, dict) else None
+        latest_version = str((latest or {}).get("version") or "")
+        newer = bool(
+            desktop
+            and str(desktop.get("version") or latest_version)
+            and str(desktop.get("version") or latest_version) != VERSION
+        )
+        if newer:
+            from ..update import is_newer
+
+            newer = is_newer(desktop.get("version") or latest_version, VERSION)
+        if not result.get("ok") or latest is None:
+            self.update_status.setText("无法检查更新，请稍后重试")
+            self.update_download.hide()
+            if manual:
+                self.toast("无法检查更新")
+            return
+        if newer:
+            version = str(desktop.get("version") or latest_version)
+            self.update_status.setText(f"发现新版本 {version}")
+            from ..update import DOWNLOAD_PAGE
+
+            self._update_url = str((latest or {}).get("page") or DOWNLOAD_PAGE)
+            self.update_download.show()
+            if manual:
+                self.toast(f"发现新版本 {version}")
+            elif self.tray:
+                self.tray.showMessage(
+                    APP_NAME,
+                    f"发现新版本 {version}，可在设置中下载",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    4000,
+                )
+        else:
+            self.update_status.setText(f"已是最新版本 v{VERSION}")
+            self.update_download.hide()
+            if manual:
+                self.toast("已是最新版本")
+
+    def open_update_page(self) -> None:
+        try:
+            from ..update import DOWNLOAD_PAGE
+
+            url = self._update_url or DOWNLOAD_PAGE
+        except Exception:
+            url = self._update_url
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
 
     def apply_theme(self, theme: str) -> None:
         theme = "dark" if theme == "dark" else "light"
@@ -1347,7 +1428,7 @@ class MainWindow(QMainWindow):
         QApplication.instance().setStyleSheet(build_qss(theme))
         self.hero_logo.set_theme(theme)
         self.hero_title.set_theme(theme)
-        self._style_combo_popup()
+        self.theme_switch.set_dark(theme == "dark", animate=False)
         self._apply_icons()
         self.device_signature = ()
         self.transfer_signature = ()

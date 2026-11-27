@@ -2979,6 +2979,13 @@ html[data-theme="light"] .switch {
   transform: translateX(20px);
 }
 
+/* 浅色主题下 .switch 的基础背景优先级更高，必须单独覆盖选中态 */
+html[data-theme="light"] .switch[aria-checked="true"] {
+  border-color: transparent;
+  background: var(--accent);
+  box-shadow: 0 6px 16px -6px rgba(46, 124, 246, 0.35);
+}
+
 .switch:disabled {
   opacity: 0.5;
   cursor: wait;
@@ -3775,4 +3782,125 @@ html[data-theme="dark"] .bottom-nav-item.is-active {
 .offer-actions .btn-cancel:hover {
   background: rgba(224, 68, 96, 0.12);
   border-color: rgba(224, 68, 96, 0.38);
+}
+
+/* --------------------------------------------------------------------------
+   传输取消 / 本机名称 / 版本更新
+   -------------------------------------------------------------------------- */
+.section-head-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-head-actions .section-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#cancel-all-transfers {
+  flex: none;
+  min-height: 30px;
+  padding: 0 11px;
+  color: var(--danger-text);
+  border-color: rgba(224, 68, 96, 0.2);
+  background: var(--danger-soft);
+  font-size: 11px;
+}
+
+#cancel-all-transfers:hover {
+  color: var(--danger-text);
+  border-color: rgba(224, 68, 96, 0.34);
+  background: rgba(224, 68, 96, 0.14);
+}
+
+#cancel-all-transfers:disabled {
+  opacity: 0.6;
+}
+
+.transfer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.transfer-actions[hidden] {
+  display: none;
+}
+
+.transfer-actions .btn {
+  min-height: 30px;
+  padding: 0 11px;
+  gap: 5px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+
+.transfer-actions .btn .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.transfer-actions .transfer-cancel {
+  color: var(--danger-text);
+  border-color: rgba(224, 68, 96, 0.22);
+  background: var(--danger-soft);
+}
+
+.transfer-actions .transfer-cancel:hover {
+  color: var(--danger-text);
+  border-color: rgba(224, 68, 96, 0.34);
+  background: rgba(224, 68, 96, 0.14);
+}
+
+.setting-row > .setting-name-field {
+  display: flex;
+  min-width: 0;
+  max-width: 66%;
+  align-items: center;
+  gap: 7px;
+}
+
+.setting-name-field .btn {
+  flex: none;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.setting-name-input.text-input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 11px;
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+
+.update-status {
+  display: block;
+  color: var(--text-3);
+}
+
+.update-status.is-ok {
+  color: var(--success-text);
+}
+
+.update-status.is-error {
+  color: var(--danger-text);
+}
+
+.update-status.is-busy {
+  color: var(--cyan-text);
+}
+
+.setting-row .btn-xs .icon {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 380px) {
+  .setting-row > .setting-name-field {
+    max-width: 62%;
+  }
 }
